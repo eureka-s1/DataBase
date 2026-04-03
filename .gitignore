@@ -1,0 +1,6 @@
+# data
+
+/2025data
+.venv/
+__pycache__/
+*.pyc
