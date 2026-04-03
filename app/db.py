@@ -5,6 +5,8 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from .config import DB_PATH, SCHEMA_PATH, ensure_dirs
+from .services.auth import ensure_default_admin
+from .services.common import now_ts
 
 
 def connect(db_path: Path | None = None) -> sqlite3.Connection:
@@ -33,3 +35,10 @@ def init_db(db_path: Path | None = None) -> None:
     sql = SCHEMA_PATH.read_text(encoding="utf-8")
     with db_session(db_path) as conn:
         conn.executescript(sql)
+        ensure_default_admin(conn)
+        row = conn.execute("SELECT id FROM warehouses LIMIT 1").fetchone()
+        if not row:
+            conn.execute(
+                "INSERT INTO warehouses(name, location, is_active) VALUES (?, ?, 1)",
+                ("Main Warehouse", "Default"),
+            )

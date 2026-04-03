@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录</title>
+  <style>
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: linear-gradient(135deg,#f3f9ff,#e8f2ff); font-family: "Segoe UI", "PingFang SC", sans-serif; }
+    .box { width: min(420px, 92vw); background: #fff; border: 1px solid #d8e6f5; border-radius: 14px; padding: 20px; }
+    input { width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid #c8d9ea; border-radius: 8px; }
+    button { width: 100%; padding: 10px; border: 0; border-radius: 8px; background: #0b5fb0; color: #fff; }
+    .err { color: #b51f1f; }
+  </style>
+</head>
+<body>
+  <form class="box" method="post" action="/login">
+    <h3>系统登录</h3>
+    <p>默认管理员：<code>admin / admin123</code></p>
+    {% if error %}<p class="err">{{ error }}</p>{% endif %}
+    <input name="username" placeholder="用户名" value="admin" required>
+    <input name="password" placeholder="密码" type="password" required>
+    <button type="submit">登录</button>
+  </form>
+</body>
+</html>

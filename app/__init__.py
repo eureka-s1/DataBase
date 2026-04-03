@@ -1,29 +1,119 @@
 from __future__ import annotations
 
-from flask import Flask, jsonify, request
+from functools import wraps
+from pathlib import Path
 
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+
+from .config import BACKUP_DIR, DB_PATH, SECRET_KEY
 from .db import db_session, init_db
+from .services.auth import authenticate, change_password
+from .services.backup import backup_sqlite
+from .services.containers import (
+    add_item_to_container,
+    confirm_container,
+    container_usage,
+    create_container,
+    list_containers,
+    remove_item_from_container,
+    revoke_container,
+)
 from .services.customers import create_customer, list_customers, resolve_customer_id, upsert_alias
+from .services.finance import add_payment, generate_statement, ledger, post_statement
+from .services.importer import import_inbound_excel, parse_inbound_excel
+from .services.inbound import create_inbound_item, delete_inbound_item, list_inbound, update_inbound_item
+from .services.pricing import upsert_price_rule
+from .services.reports import (
+    export_daily_inbound_excel,
+    export_inventory_excel,
+    export_ledger_excel,
+    export_statement_excel,
+    export_statement_pdf,
+)
+
+
+def login_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not session.get('user_id'):
+            return redirect(url_for('login_page'))
+        return fn(*args, **kwargs)
+
+    return wrapper
 
 
 def create_app() -> Flask:
     app = Flask(__name__)
+    app.secret_key = SECRET_KEY
 
-    @app.get('/health')
+    @app.errorhandler(ValueError)
+    def handle_value_error(err):
+        if request.path.startswith('/ui/') or request.path in ('/', '/login'):
+            return render_template('login.html', error=str(err)), 400
+        return {'error': str(err)}, 400
+
+    @app.route('/health', methods=['GET'])
     def health():
         return {'status': 'ok'}
 
-    @app.post('/init-db')
+    @app.route('/', methods=['GET'])
+    @login_required
+    def home():
+        return render_template('index.html', user=session)
+
+    @app.route('/login', methods=['GET'])
+    def login_page():
+        return render_template('login.html')
+
+    @app.route('/login', methods=['POST'])
+    def login_submit():
+        payload = request.form if request.form else request.get_json(force=True)
+        username = (payload.get('username') or '').strip()
+        password = (payload.get('password') or '').strip()
+        with db_session() as conn:
+            user = authenticate(conn, username, password)
+        if not user:
+            return render_template('login.html', error='用户名或密码错误'), 401
+
+        session['user_id'] = user['id']
+        session['username'] = user['username']
+        session['role'] = user['role']
+        if request.form:
+            return redirect(url_for('home'))
+        return user
+
+    @app.route('/logout', methods=['POST'])
+    @login_required
+    def logout():
+        session.clear()
+        if request.form:
+            return redirect(url_for('login_page'))
+        return {'message': 'ok'}
+
+    @app.route('/change-password', methods=['POST'])
+    @login_required
+    def change_password_api():
+        payload = request.form if request.form else request.get_json(force=True)
+        new_password = (payload.get('new_password') or '').strip()
+        if len(new_password) < 6:
+            return {'error': 'password too short'}, 400
+        with db_session() as conn:
+            change_password(conn, int(session['user_id']), new_password)
+        return {'message': 'password changed'}
+
+    @app.route('/init-db', methods=['POST'])
     def init_db_api():
         init_db()
         return {'message': 'database initialized'}
 
-    @app.get('/customers')
+    @app.route('/customers', methods=['GET'])
+    @login_required
     def customers_list():
         with db_session() as conn:
             return jsonify(list_customers(conn))
 
-    @app.post('/customers')
+    @app.route('/customers', methods=['POST'])
+    @login_required
     def customers_create():
         payload = request.get_json(force=True)
         required = ('customer_code', 'name')
@@ -43,7 +133,8 @@ def create_app() -> Flask:
             )
         return {'id': customer_id}, 201
 
-    @app.post('/customer-aliases')
+    @app.route('/customer-aliases', methods=['POST'])
+    @login_required
     def alias_upsert():
         payload = request.get_json(force=True)
         customer_id = payload.get('customer_id')
@@ -63,7 +154,8 @@ def create_app() -> Flask:
             )
         return {'message': 'ok'}
 
-    @app.get('/customer-resolve')
+    @app.route('/customer-resolve', methods=['GET'])
+    @login_required
     def customer_resolve():
         name = request.args.get('name', '').strip()
         if not name:
@@ -74,5 +166,231 @@ def create_app() -> Flask:
         if customer_id is None:
             return {'matched': False}
         return {'matched': True, 'customer_id': customer_id}
+
+    @app.route('/price-rules', methods=['POST'])
+    @login_required
+    def price_rules_upsert():
+        payload = request.get_json(force=True)
+        with db_session() as conn:
+            upsert_price_rule(
+                conn,
+                customer_id=int(payload['customer_id']),
+                effective_from=payload['effective_from'],
+                effective_to=payload.get('effective_to'),
+                price_per_m3=float(payload['price_per_m3']),
+                currency=payload.get('currency', 'CNY'),
+                remark=payload.get('remark'),
+            )
+        return {'message': 'ok'}
+
+    @app.route('/inbound-items', methods=['GET'])
+    @login_required
+    def inbound_list_api():
+        inbound_date = request.args.get('inbound_date')
+        only_in_stock = request.args.get('only_in_stock') == '1'
+        with db_session() as conn:
+            return jsonify(list_inbound(conn, inbound_date=inbound_date, only_in_stock=only_in_stock))
+
+    @app.route('/inbound-items', methods=['POST'])
+    @login_required
+    def inbound_create_api():
+        payload = request.get_json(force=True)
+        with db_session() as conn:
+            item_id = create_inbound_item(conn, payload)
+        return {'id': item_id}, 201
+
+    @app.route('/inbound-items/<int:item_id>', methods=['PUT'])
+    @login_required
+    def inbound_update_api(item_id: int):
+        payload = request.get_json(force=True)
+        with db_session() as conn:
+            update_inbound_item(conn, item_id, payload)
+        return {'message': 'ok'}
+
+    @app.route('/inbound-items/<int:item_id>', methods=['DELETE'])
+    @login_required
+    def inbound_delete_api(item_id: int):
+        with db_session() as conn:
+            deleted = delete_inbound_item(conn, item_id)
+        if deleted == 0:
+            return {'error': 'only IN_STOCK records can be deleted'}, 400
+        return {'deleted': deleted}
+
+    @app.route('/containers', methods=['POST'])
+    @login_required
+    def create_container_api():
+        payload = request.get_json(force=True)
+        with db_session() as conn:
+            cid = create_container(conn, payload, user_id=int(session['user_id']))
+        return {'id': cid}, 201
+
+    @app.route('/containers', methods=['GET'])
+    @login_required
+    def containers_list_api():
+        with db_session() as conn:
+            return jsonify(list_containers(conn))
+
+    @app.route('/containers/<int:container_id>/usage', methods=['GET'])
+    @login_required
+    def container_usage_api(container_id: int):
+        with db_session() as conn:
+            return container_usage(conn, container_id)
+
+    @app.route('/containers/<int:container_id>/items', methods=['POST'])
+    @login_required
+    def add_container_item_api(container_id: int):
+        payload = request.get_json(force=True)
+        with db_session() as conn:
+            add_item_to_container(conn, container_id, int(payload['inbound_item_id']), payload.get('cbm_at_load'))
+            usage = container_usage(conn, container_id)
+        return {'message': 'ok', 'usage': usage}
+
+    @app.route('/containers/<int:container_id>/items/<int:item_id>', methods=['DELETE'])
+    @login_required
+    def remove_container_item_api(container_id: int, item_id: int):
+        with db_session() as conn:
+            removed = remove_item_from_container(conn, container_id, item_id)
+            usage = container_usage(conn, container_id)
+        return {'removed': removed, 'usage': usage}
+
+    @app.route('/containers/<int:container_id>/confirm', methods=['POST'])
+    @login_required
+    def confirm_container_api(container_id: int):
+        with db_session() as conn:
+            confirm_container(conn, container_id)
+        return {'message': 'confirmed'}
+
+    @app.route('/containers/<int:container_id>/revoke', methods=['POST'])
+    @login_required
+    def revoke_container_api(container_id: int):
+        with db_session() as conn:
+            revoke_container(conn, container_id)
+        return {'message': 'revoked'}
+
+    @app.route('/payments', methods=['POST'])
+    @login_required
+    def add_payment_api():
+        payload = request.get_json(force=True)
+        with db_session() as conn:
+            pid = add_payment(conn, payload, int(session['user_id']))
+        return {'id': pid}, 201
+
+    @app.route('/settlements/generate', methods=['POST'])
+    @login_required
+    def generate_settlement_api():
+        payload = request.get_json(force=True)
+        with db_session() as conn:
+            sid = generate_statement(
+                conn,
+                container_id=int(payload['container_id']),
+                user_id=int(session['user_id']),
+                statement_no=payload.get('statement_no'),
+                statement_date=payload.get('statement_date'),
+            )
+        return {'statement_id': sid}, 201
+
+    @app.route('/settlements/<int:statement_id>/post', methods=['POST'])
+    @login_required
+    def post_settlement_api(statement_id: int):
+        with db_session() as conn:
+            post_statement(conn, statement_id)
+        return {'message': 'posted'}
+
+    @app.route('/ledger', methods=['GET'])
+    @login_required
+    def ledger_api():
+        customer_id = request.args.get('customer_id')
+        with db_session() as conn:
+            rows = ledger(conn, int(customer_id) if customer_id else None)
+        return jsonify(rows)
+
+    @app.route('/exports/daily-inbound', methods=['POST'])
+    @login_required
+    def export_daily_inbound_api():
+        payload = request.get_json(force=True)
+        with db_session() as conn:
+            path = export_daily_inbound_excel(conn, payload.get('inbound_date'))
+        return {'file_path': path}
+
+    @app.route('/exports/inventory', methods=['POST'])
+    @login_required
+    def export_inventory_api():
+        with db_session() as conn:
+            path = export_inventory_excel(conn)
+        return {'file_path': path}
+
+    @app.route('/exports/ledger', methods=['POST'])
+    @login_required
+    def export_ledger_api():
+        with db_session() as conn:
+            path = export_ledger_excel(conn)
+        return {'file_path': path}
+
+    @app.route('/exports/statement/<int:statement_id>', methods=['POST'])
+    @login_required
+    def export_statement_api(statement_id: int):
+        payload = request.get_json(force=True)
+        fmt = (payload.get('format') or 'xlsx').lower()
+        with db_session() as conn:
+            if fmt == 'pdf':
+                path = export_statement_pdf(conn, statement_id)
+            else:
+                path = export_statement_excel(conn, statement_id)
+        return {'file_path': path}
+
+    @app.route('/backup', methods=['POST'])
+    @login_required
+    def backup_api():
+        with db_session() as conn:
+            out = backup_sqlite(DB_PATH, BACKUP_DIR)
+            conn.execute(
+                'INSERT INTO backup_jobs(backup_time, backup_file, size_bytes, status, message) VALUES (datetime("now"), ?, ?, ?, ?)',
+                (str(out), out.stat().st_size, 'SUCCESS', 'manual backup'),
+            )
+        return {'backup_file': str(out)}
+
+    @app.route('/import/inbound/preview', methods=['POST'])
+    @login_required
+    def import_preview_api():
+        payload = request.get_json(force=True)
+        path = Path(payload['file_path'])
+        result = parse_inbound_excel(path)
+        return {
+            'header_row': result['header_row'],
+            'sample_rows': result['rows'][:20],
+            'field_mapping': result['field_mapping'],
+        }
+
+    @app.route('/import/inbound/execute', methods=['POST'])
+    @login_required
+    def import_execute_api():
+        payload = request.get_json(force=True)
+        path = Path(payload['file_path'])
+        with db_session() as conn:
+            result = import_inbound_excel(
+                conn,
+                path=path,
+                inbound_date=payload['inbound_date'],
+                created_by=int(session['user_id']),
+                dry_run=bool(payload.get('dry_run', True)),
+            )
+        return result
+
+    @app.route('/ui/dashboard', methods=['GET'])
+    @login_required
+    def ui_dashboard():
+        with db_session() as conn:
+            customers = list_customers(conn)
+            inbound = list_inbound(conn, only_in_stock=True)
+            containers = list_containers(conn)
+            ledger_rows = ledger(conn)
+        return render_template(
+            'dashboard.html',
+            user=session,
+            customers=customers,
+            inbound=inbound[:50],
+            containers=containers[:30],
+            ledger_rows=ledger_rows,
+        )
 
     return app

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>业务面板</title>
+  <style>
+    body { font-family: "Segoe UI", "PingFang SC", sans-serif; margin: 16px; background: #f5f9fd; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+    .card { background: #fff; border: 1px solid #d8e6f5; border-radius: 12px; padding: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border-bottom: 1px solid #edf3f9; text-align: left; padding: 6px; }
+    h3 { margin: 4px 0 10px; }
+  </style>
+</head>
+<body>
+  <p><a href="/">返回首页</a></p>
+  <div class="grid">
+    <div class="card">
+      <h3>客户（{{ customers|length }}）</h3>
+      <table>
+        <tr><th>ID</th><th>名称</th><th>别名数</th></tr>
+        {% for c in customers[:20] %}
+          <tr><td>{{ c.id }}</td><td>{{ c.name }}</td><td>{{ c.aliases|length }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>在库货物（前50）</h3>
+      <table>
+        <tr><th>单号</th><th>客户</th><th>品名</th><th>CBM</th></tr>
+        {% for i in inbound %}
+          <tr><td>{{ i.inbound_no }}</td><td>{{ i.customer_name }}</td><td>{{ i.item_name_cn }}</td><td>{{ i.cbm_final }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>柜次（{{ containers|length }}）</h3>
+      <table>
+        <tr><th>柜号</th><th>状态</th><th>已用/容量</th></tr>
+        {% for c in containers %}
+          <tr><td>{{ c.container_no }}</td><td>{{ c.status }}</td><td>{{ c.used_cbm }} / {{ c.capacity_cbm }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>客户总账</h3>
+      <table>
+        <tr><th>客户</th><th>充值</th><th>运费</th><th>净余额</th></tr>
+        {% for r in ledger_rows %}
+          <tr><td>{{ r.name }}</td><td>{{ r.total_deposit }}</td><td>{{ r.total_freight }}</td><td>{{ r.net_balance }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+</body>
+</html>

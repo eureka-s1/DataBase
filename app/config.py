@@ -15,6 +15,7 @@ DATA_ROOT = Path(os.environ.get("CANYU_DATA_DIR", _default_data_root()))
 DB_PATH = Path(os.environ.get("CANYU_DB_PATH", DATA_ROOT / "shipping.db"))
 BACKUP_DIR = Path(os.environ.get("CANYU_BACKUP_DIR", DATA_ROOT / "backups"))
 SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schema" / "schema.sql"
+SECRET_KEY = os.environ.get("CANYU_SECRET_KEY", "change-this-in-production")
 
 
 def ensure_dirs() -> None:

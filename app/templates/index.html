@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>璨宇仓储系统</title>
+  <style>
+    body { font-family: "Segoe UI", "PingFang SC", sans-serif; margin: 24px; background: #f8fbff; }
+    .card { background: #fff; border: 1px solid #dbe8f5; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+    a { color: #0b5fb0; text-decoration: none; }
+    button { border: 1px solid #bdd4ea; background: #fff; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>璨宇国际仓储与拼柜系统</h2>
+    <p>当前登录用户：{{ user.username }}（{{ user.role }}）</p>
+    <p><a href="/ui/dashboard">进入业务面板</a></p>
+    <form method="post" action="/logout">
+      <button type="submit">退出登录</button>
+    </form>
+  </div>
+</body>
+</html>
