@@ -96,6 +96,8 @@ def run() -> None:
     assert r.status_code == 200
     r = c.post(f'/containers/{container2_id}/confirm')
     assert r.status_code == 200
+    r = c.get(f'/containers/{container2_id}/details')
+    assert r.status_code == 200, r.data
 
     r = c.post('/settlements/generate', json={'container_id': container2_id, 'statement_date': '2026-04-04'})
     assert r.status_code == 201, r.data
@@ -115,8 +117,13 @@ def run() -> None:
     assert c.post('/exports/daily-inbound', json={'inbound_date': '2026-04-04'}).status_code == 200
     assert c.post('/exports/inventory', json={}).status_code == 200
     assert c.post('/exports/ledger', json={}).status_code == 200
+    assert c.post(f'/exports/container/{container2_id}', json={'format': 'xlsx'}).status_code == 200
+    assert c.post(f'/exports/container/{container2_id}', json={'format': 'pdf'}).status_code == 200
     assert c.post(f'/exports/statement/{statement_id}', json={'format': 'xlsx'}).status_code == 200
     assert c.post(f'/exports/statement/{statement_id}', json={'format': 'pdf'}).status_code == 200
+
+    r = c.get('/customer-items', query_string={'customer_id': customer_id, 'sort_by': 'inbound_date', 'sort_dir': 'desc'})
+    assert r.status_code == 200, r.data
 
     # backup
     assert c.post('/backup', json={}).status_code == 200

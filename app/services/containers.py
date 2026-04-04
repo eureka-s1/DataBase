@@ -216,3 +216,58 @@ def list_containers(conn: Connection) -> list[dict]:
         '''
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def container_manifest(conn: Connection, container_id: int) -> tuple[dict, list[dict], list[dict]]:
+    head = conn.execute(
+        '''
+        SELECT c.id, c.container_no, c.status, c.capacity_cbm, c.default_price_per_m3,
+               COALESCE(SUM(ci.cbm_at_load), 0) AS used_cbm, COUNT(ci.id) AS item_count
+        FROM containers c
+        LEFT JOIN container_items ci ON ci.container_id=c.id
+        WHERE c.id=?
+        GROUP BY c.id
+        ''',
+        (container_id,),
+    ).fetchone()
+    if not head:
+        raise ValueError('container not found')
+
+    unit_price = to_float(head['default_price_per_m3'])
+    rows = conn.execute(
+        '''
+        SELECT ci.inbound_item_id, ci.cbm_at_load, i.inbound_date, i.item_no, i.item_name_cn, i.shop_no, i.status AS item_status,
+               cu.id AS customer_id, cu.name AS customer_name
+        FROM container_items ci
+        JOIN inbound_items i ON i.id = ci.inbound_item_id
+        JOIN customers cu ON cu.id = i.customer_id
+        WHERE ci.container_id=?
+        ORDER BY cu.name, i.inbound_date, i.id
+        ''',
+        (container_id,),
+    ).fetchall()
+    items: list[dict] = []
+    for r in rows:
+        d = dict(r)
+        d['freight_amount'] = round(to_float(d.get('cbm_at_load')) * unit_price, 2)
+        items.append(d)
+
+    customer_summary_rows = conn.execute(
+        '''
+        SELECT cu.id AS customer_id, cu.name AS customer_name, COALESCE(SUM(ci.cbm_at_load), 0) AS cbm_total
+        FROM container_items ci
+        JOIN inbound_items i ON i.id = ci.inbound_item_id
+        JOIN customers cu ON cu.id = i.customer_id
+        WHERE ci.container_id=?
+        GROUP BY cu.id, cu.name
+        ORDER BY cu.name
+        ''',
+        (container_id,),
+    ).fetchall()
+    customer_summary: list[dict] = []
+    for r in customer_summary_rows:
+        d = dict(r)
+        d['freight_amount'] = round(to_float(d.get('cbm_total')) * unit_price, 2)
+        customer_summary.append(d)
+
+    return dict(head), items, customer_summary

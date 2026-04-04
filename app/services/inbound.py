@@ -130,3 +130,42 @@ def list_inbound(
         args,
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def list_customer_items(
+    conn: Connection,
+    customer_id: int,
+    status: str | None = None,
+    sort_by: str = 'inbound_date',
+    sort_dir: str = 'desc',
+) -> list[dict]:
+    where = ['i.customer_id=?']
+    args: list = [customer_id]
+    if status and status in ('IN_STOCK', 'ALLOCATED', 'SHIPPED'):
+        where.append('i.status=?')
+        args.append(status)
+
+    sort_map = {
+        'inbound_date': 'i.inbound_date',
+        'status': 'i.status',
+        'container_no': 'COALESCE(c.container_no, "")',
+        'item_name': 'COALESCE(i.item_name_cn, "")',
+        'item_no': 'COALESCE(i.item_no, "")',
+    }
+    order_col = sort_map.get(sort_by, 'i.inbound_date')
+    order_dir = 'ASC' if str(sort_dir).lower() == 'asc' else 'DESC'
+
+    rows = conn.execute(
+        f'''
+        SELECT i.*, cu.name AS customer_name,
+               COALESCE(i.cbm_override, i.cbm_calculated) AS cbm_final,
+               c.container_no, c.status AS container_status
+        FROM inbound_items i
+        JOIN customers cu ON cu.id = i.customer_id
+        LEFT JOIN containers c ON c.id = i.container_id
+        WHERE {' AND '.join(where)}
+        ORDER BY {order_col} {order_dir}, i.id DESC
+        ''',
+        args,
+    ).fetchall()
+    return [dict(r) for r in rows]

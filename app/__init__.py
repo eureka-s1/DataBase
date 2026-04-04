@@ -12,6 +12,7 @@ from .services.auth import authenticate, change_password
 from .services.backup import backup_sqlite
 from .services.containers import (
     add_item_to_container,
+    container_manifest,
     confirm_container,
     container_usage,
     create_container,
@@ -29,10 +30,12 @@ from .services.importer import (
     parse_inbound_excel,
     rollback_inbound_import_batch,
 )
-from .services.inbound import create_inbound_item, delete_inbound_item, list_inbound, update_inbound_item
+from .services.inbound import create_inbound_item, delete_inbound_item, list_customer_items, list_inbound, update_inbound_item
 from .services.pricing import upsert_price_rule
 from .services.reports import (
     export_daily_inbound_excel,
+    export_container_excel,
+    export_container_pdf,
     export_inventory_excel,
     export_ledger_excel,
     export_statement_excel,
@@ -196,6 +199,29 @@ def create_app() -> Flask:
             return {'matched': False}
         return {'matched': True, 'customer_id': customer_id}
 
+    @app.route('/customer-items', methods=['GET'])
+    @login_required
+    def customer_items_api():
+        customer_id_raw = (request.args.get('customer_id') or '').strip()
+        customer_name = (request.args.get('customer_name') or '').strip()
+        status = (request.args.get('status') or '').strip().upper() or None
+        sort_by = (request.args.get('sort_by') or 'inbound_date').strip()
+        sort_dir = (request.args.get('sort_dir') or 'desc').strip()
+
+        if customer_id_raw:
+            customer_id = int(customer_id_raw)
+        elif customer_name:
+            with db_session() as conn:
+                customer_id = resolve_customer_id(conn, customer_name)
+            if customer_id is None:
+                return {'error': 'customer not found'}, 404
+        else:
+            return {'error': 'customer_id or customer_name is required'}, 400
+
+        with db_session() as conn:
+            rows = list_customer_items(conn, customer_id, status=status, sort_by=sort_by, sort_dir=sort_dir)
+        return jsonify(rows)
+
     @app.route('/price-rules', methods=['POST'])
     @login_required
     def price_rules_upsert():
@@ -273,6 +299,13 @@ def create_app() -> Flask:
     def container_usage_api(container_id: int):
         with db_session() as conn:
             return container_usage(conn, container_id)
+
+    @app.route('/containers/<int:container_id>/details', methods=['GET'])
+    @login_required
+    def container_details_api(container_id: int):
+        with db_session() as conn:
+            head, items, customer_summary = container_manifest(conn, container_id)
+        return {'head': head, 'items': items, 'customer_summary': customer_summary}
 
     @app.route('/containers/<int:container_id>/items', methods=['POST'])
     @login_required
@@ -405,6 +438,18 @@ def create_app() -> Flask:
                 path = export_statement_pdf(conn, statement_id)
             else:
                 path = export_statement_excel(conn, statement_id)
+        return {'file_path': path}
+
+    @app.route('/exports/container/<int:container_id>', methods=['POST'])
+    @login_required
+    def export_container_api(container_id: int):
+        payload = request.get_json(force=True)
+        fmt = (payload.get('format') or 'xlsx').lower()
+        with db_session() as conn:
+            if fmt == 'pdf':
+                path = export_container_pdf(conn, container_id)
+            else:
+                path = export_container_excel(conn, container_id)
         return {'file_path': path}
 
     @app.route('/backup', methods=['POST'])

@@ -498,7 +498,7 @@ def rollback_inbound_import_batch(conn: Connection, batch_id: int) -> dict:
     ).rowcount
 
     conn.execute(
-        'UPDATE import_batches SET success_rows=0, failed_rows=total_rows, error_report_path=? WHERE id=?',
+        'UPDATE import_batches SET error_report_path=? WHERE id=?',
         (f'ROLLED_BACK {now_ts()}', batch_id),
     )
 
@@ -537,7 +537,8 @@ def list_inbound_import_batches(
                b.failed_rows,
                b.created_at,
                COALESCE((SELECT MIN(i.inbound_date) FROM inbound_items i WHERE i.import_batch_id=b.id), '') AS inbound_date,
-               COALESCE((SELECT COUNT(*) FROM inbound_items i WHERE i.import_batch_id=b.id AND i.status='IN_STOCK'), 0) AS in_stock_items
+               COALESCE((SELECT COUNT(*) FROM inbound_items i WHERE i.import_batch_id=b.id AND i.status='IN_STOCK'), 0) AS in_stock_items,
+               COALESCE((SELECT COUNT(*) FROM inbound_items i WHERE i.import_batch_id=b.id), 0) AS current_item_rows
         FROM import_batches b
         WHERE {where_sql}
         ORDER BY b.id DESC
@@ -545,4 +546,9 @@ def list_inbound_import_batches(
         ''',
         args,
     ).fetchall()
-    return [dict(r) for r in rows]
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['revoked_rows'] = max(0, int(d.get('success_rows') or 0) - int(d.get('current_item_rows') or 0))
+        result.append(d)
+    return result

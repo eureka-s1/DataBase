@@ -281,6 +281,53 @@
           </div>
           <div id="customersTableWrap"><table id="tableCustomers"></table></div>
         </div>
+        <div class="card">
+          <h3>客户货物查询（是否入柜/所在柜/发货内容）</h3>
+          <form id="formCustomerItemsQuery" class="inline">
+            <label>客户ID（可空）<input name="customer_id" placeholder="如 12"></label>
+            <label>客户名（可空）<input name="customer_name" placeholder="如 MARTIN"></label>
+            <label>状态
+              <select name="status">
+                <option value="">全部</option>
+                <option value="IN_STOCK">IN_STOCK</option>
+                <option value="ALLOCATED">ALLOCATED</option>
+                <option value="SHIPPED">SHIPPED</option>
+              </select>
+            </label>
+            <label>排序字段
+              <select name="sort_by">
+                <option value="inbound_date">入库日期</option>
+                <option value="container_no">柜号</option>
+                <option value="status">状态</option>
+                <option value="item_name">品名</option>
+                <option value="item_no">ITEM NO</option>
+              </select>
+            </label>
+            <label>排序方向
+              <select name="sort_dir">
+                <option value="desc">降序</option>
+                <option value="asc">升序</option>
+              </select>
+            </label>
+            <label>每页
+              <select id="customerItemsPageSize" name="page_size">
+                <option value="20">20</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+              </select>
+            </label>
+            <button class="btn primary" type="submit">查询客户货物</button>
+          </form>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin:8px 0;">
+            <div id="customerItemsPageInfo" class="small"></div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn" id="btnCustomerItemsPrev" type="button">上一页</button>
+              <button class="btn" id="btnCustomerItemsNext" type="button">下一页</button>
+              <button class="btn" id="btnCustomerItemsCollapse" type="button">收起</button>
+            </div>
+          </div>
+          <div id="customerItemsTableWrap"><table id="tableCustomerItems"></table></div>
+        </div>
       </section>
 
       <section class="panel" id="panel-container">
@@ -379,6 +426,32 @@
             </div>
           </div>
           <div id="containersTableWrap"><table id="tableContainers"></table></div>
+        </div>
+        <div class="card">
+          <h3>柜次明细（展开查看）</h3>
+          <form id="formContainerDetails" class="inline">
+            <label>柜次ID<input name="container_id" required></label>
+            <button class="btn primary" type="submit">查看明细</button>
+            <button class="btn" id="btnExportContainerExcel" type="button">导出柜单 Excel</button>
+            <button class="btn" id="btnExportContainerPdf" type="button">导出柜单 PDF</button>
+          </form>
+          <div id="containerDetailHead" class="small" style="margin-top:8px;"></div>
+          <div style="margin-top:8px;">
+            <h4 style="margin:0 0 6px;">客户汇总（体积/金额）</h4>
+            <div id="containerDetailSummaryWrap"><table id="tableContainerDetailSummary"></table></div>
+          </div>
+          <div style="margin-top:8px;">
+            <h4 style="margin:0 0 6px;">货物明细</h4>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <div id="containerDetailPageInfo" class="small"></div>
+              <div style="display:flex; gap:8px;">
+                <button class="btn" id="btnContainerDetailPrev" type="button">上一页</button>
+                <button class="btn" id="btnContainerDetailNext" type="button">下一页</button>
+                <button class="btn" id="btnContainerDetailCollapse" type="button">收起</button>
+              </div>
+            </div>
+            <div id="containerDetailTableWrap"><table id="tableContainerDetailItems"></table></div>
+          </div>
         </div>
       </section>
 
@@ -516,6 +589,11 @@
               <label>格式<select name="format"><option value="xlsx">xlsx</option><option value="pdf">pdf</option></select></label>
               <button class="btn" type="submit">导出账单</button>
             </form>
+            <form id="formExportContainer" class="inline" style="margin-top:8px;">
+              <label>柜次ID<input name="container_id" required></label>
+              <label>格式<select name="format"><option value="xlsx">xlsx</option><option value="pdf">pdf</option></select></label>
+              <button class="btn" type="submit">导出柜单</button>
+            </form>
             <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
               <button class="btn" id="btnExportInventory" type="button">导出库存</button>
               <button class="btn" id="btnExportLedger" type="button">导出总账</button>
@@ -582,6 +660,13 @@
       importBatchPage: 1,
       importBatchPageSize: 20,
       importBatchQuery: { batch_id: '', inbound_date: '', limit: 50 },
+      customerItems: [],
+      customerItemsPage: 1,
+      customerItemsPageSize: 50,
+      containerDetail: { head: null, items: [], customer_summary: [] },
+      containerDetailPage: 1,
+      containerDetailPageSize: 50,
+      containerDetailCurrentId: '',
     };
 
     function setMsg(text, ok = true) {
@@ -872,6 +957,62 @@
       byId('statementsPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.statementsPage}/${totalPages} 页`;
     }
 
+    function renderCustomerItems(rows = null) {
+      if (rows !== null) state.customerItems = rows;
+      const allRows = state.customerItems.slice();
+      const pageSize = Number(state.customerItemsPageSize || 50);
+      const totalPages = Math.max(1, Math.ceil(allRows.length / pageSize));
+      if (state.customerItemsPage > totalPages) state.customerItemsPage = totalPages;
+      if (state.customerItemsPage < 1) state.customerItemsPage = 1;
+      const start = (state.customerItemsPage - 1) * pageSize;
+      const pageRows = allRows.slice(start, start + pageSize);
+      const trs = pageRows.map(r =>
+        `<tr>
+          <td>${r.inbound_date || ''}</td>
+          <td>${r.status || ''}</td>
+          <td>${r.container_no || '-'}</td>
+          <td>${r.container_status || '-'}</td>
+          <td>${r.item_no || ''}</td>
+          <td>${r.item_name_cn || ''}</td>
+          <td>${r.shop_no || ''}</td>
+          <td>${r.cbm_final ?? r.cbm_calculated ?? ''}</td>
+        </tr>`
+      );
+      renderTable(byId('tableCustomerItems'), ['入库日期', '货物状态', '所在柜', '柜状态', 'ITEM NO', '品名', 'SHOP NO', 'CBM'], trs);
+      byId('customerItemsPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.customerItemsPage}/${totalPages} 页`;
+    }
+
+    function renderContainerDetails(payload = null) {
+      if (payload !== null) state.containerDetail = payload;
+      const head = state.containerDetail.head;
+      if (!head) {
+        byId('containerDetailHead').textContent = '请先查询柜次明细';
+        renderTable(byId('tableContainerDetailSummary'), ['客户', '体积CBM', '金额'], []);
+        renderTable(byId('tableContainerDetailItems'), ['客户', '入库日期', 'ITEM NO', '品名', 'SHOP NO', '装柜CBM', '金额'], []);
+        byId('containerDetailPageInfo').textContent = '共 0 条，当前第 1/1 页';
+        return;
+      }
+      byId('containerDetailHead').textContent =
+        `柜号 ${head.container_no}（${head.status}），已用 ${head.used_cbm}/${head.capacity_cbm} CBM，单价 ${head.default_price_per_m3}/CBM，件数 ${head.item_count}`;
+      const sumRows = (state.containerDetail.customer_summary || []).map(r =>
+        `<tr><td>${r.customer_name || ''}</td><td>${r.cbm_total ?? 0}</td><td>${r.freight_amount ?? 0}</td></tr>`
+      );
+      renderTable(byId('tableContainerDetailSummary'), ['客户', '体积CBM', '金额'], sumRows);
+
+      const allRows = (state.containerDetail.items || []).slice();
+      const pageSize = Number(state.containerDetailPageSize || 50);
+      const totalPages = Math.max(1, Math.ceil(allRows.length / pageSize));
+      if (state.containerDetailPage > totalPages) state.containerDetailPage = totalPages;
+      if (state.containerDetailPage < 1) state.containerDetailPage = 1;
+      const start = (state.containerDetailPage - 1) * pageSize;
+      const pageRows = allRows.slice(start, start + pageSize);
+      const trs = pageRows.map(r =>
+        `<tr><td>${r.customer_name || ''}</td><td>${r.inbound_date || ''}</td><td>${r.item_no || ''}</td><td>${r.item_name_cn || ''}</td><td>${r.shop_no || ''}</td><td>${r.cbm_at_load ?? 0}</td><td>${r.freight_amount ?? 0}</td></tr>`
+      );
+      renderTable(byId('tableContainerDetailItems'), ['客户', '入库日期', 'ITEM NO', '品名', 'SHOP NO', '装柜CBM', '金额'], trs);
+      byId('containerDetailPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.containerDetailPage}/${totalPages} 页`;
+    }
+
     async function refreshCustomers() { state.customers = await api('/customers'); renderCustomers(); }
     async function refreshContainers() { state.containers = await api('/containers'); renderContainers(); }
     async function refreshStatements() { state.statements = await api('/settlements'); renderStatements(); }
@@ -912,7 +1053,7 @@
           <td>${b.batch_id}</td>
           <td>${b.batch_no || ''}</td>
           <td>${b.inbound_date || ''}</td>
-          <td>${b.success_rows ?? 0}/${b.total_rows ?? 0}</td>
+          <td>${b.success_rows ?? 0}/${b.total_rows ?? 0}（撤回 ${b.revoked_rows ?? 0}）</td>
           <td>${b.in_stock_items ?? 0}</td>
           <td>${b.created_at || ''}</td>
           <td><button class="btn btnRollbackBatch" data-batch-id="${b.batch_id}">撤销此批</button></td>
@@ -987,15 +1128,22 @@
       bindCollapse('btnInboundCollapse', 'inboundTableWrap');
       bindCollapse('btnLedgerCollapse', 'ledgerTableWrap');
       bindCollapse('btnPlannerAvailCollapse', 'plannerAvailableWrap');
+      bindCollapse('btnCustomerItemsCollapse', 'customerItemsTableWrap');
+      bindCollapse('btnContainerDetailCollapse', 'containerDetailTableWrap');
       byId('customersPageSize').onchange = (e) => { state.customersPageSize = Number(e.target.value || 50); state.customersPage = 1; renderCustomers(); };
       byId('containersPageSize').onchange = (e) => { state.containersPageSize = Number(e.target.value || 50); state.containersPage = 1; renderContainers(); };
       byId('statementsPageSize').onchange = (e) => { state.statementsPageSize = Number(e.target.value || 50); state.statementsPage = 1; renderStatements(); };
+      byId('customerItemsPageSize').onchange = (e) => { state.customerItemsPageSize = Number(e.target.value || 50); state.customerItemsPage = 1; renderCustomerItems(); };
       byId('btnCustomersPrev').onclick = () => { state.customersPage -= 1; renderCustomers(); };
       byId('btnCustomersNext').onclick = () => { state.customersPage += 1; renderCustomers(); };
       byId('btnContainersPrev').onclick = () => { state.containersPage -= 1; renderContainers(); };
       byId('btnContainersNext').onclick = () => { state.containersPage += 1; renderContainers(); };
       byId('btnStatementsPrev').onclick = () => { state.statementsPage -= 1; renderStatements(); };
       byId('btnStatementsNext').onclick = () => { state.statementsPage += 1; renderStatements(); };
+      byId('btnCustomerItemsPrev').onclick = () => { state.customerItemsPage -= 1; renderCustomerItems(); };
+      byId('btnCustomerItemsNext').onclick = () => { state.customerItemsPage += 1; renderCustomerItems(); };
+      byId('btnContainerDetailPrev').onclick = () => { state.containerDetailPage -= 1; renderContainerDetails(); };
+      byId('btnContainerDetailNext').onclick = () => { state.containerDetailPage += 1; renderContainerDetails(); };
       byId('btnImportBatchPrev').onclick = () => {
         state.importBatchPage -= 1;
         refreshImportBatches(
@@ -1068,6 +1216,30 @@
           });
           setMsg('价格规则已保存');
           e.target.reset();
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formCustomerItemsQuery').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        const customerId = String(f.get('customer_id') || '').trim();
+        const customerName = String(f.get('customer_name') || '').trim();
+        if (!customerId && !customerName) {
+          setMsg('请填写客户ID或客户名', false);
+          return;
+        }
+        state.customerItemsPageSize = Number(f.get('page_size') || 50);
+        state.customerItemsPage = 1;
+        let path = '/customer-items?';
+        if (customerId) path += `customer_id=${encodeURIComponent(customerId)}&`;
+        if (customerName) path += `customer_name=${encodeURIComponent(customerName)}&`;
+        if (String(f.get('status') || '').trim()) path += `status=${encodeURIComponent(String(f.get('status')).trim())}&`;
+        path += `sort_by=${encodeURIComponent(String(f.get('sort_by') || 'inbound_date'))}&`;
+        path += `sort_dir=${encodeURIComponent(String(f.get('sort_dir') || 'desc'))}`;
+        try {
+          const rows = await api(path);
+          renderCustomerItems(rows);
+          setMsg('客户货物查询完成');
         } catch (err) { setMsg(err.message, false); }
       };
 
@@ -1372,6 +1544,45 @@
         } catch (err) { setMsg(err.message, false); }
       };
 
+      byId('formContainerDetails').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        const containerId = String(f.get('container_id') || '').trim();
+        if (!containerId) {
+          setMsg('请填写柜次ID', false);
+          return;
+        }
+        state.containerDetailCurrentId = containerId;
+        state.containerDetailPage = 1;
+        try {
+          const data = await api(`/containers/${encodeURIComponent(containerId)}/details`);
+          renderContainerDetails(data);
+          setMsg('柜次明细已加载');
+        } catch (err) { setMsg(err.message, false); }
+      };
+      byId('btnExportContainerExcel').onclick = async () => {
+        if (!state.containerDetailCurrentId) {
+          setMsg('请先查询柜次明细', false);
+          return;
+        }
+        try {
+          const r = await api(`/exports/container/${Number(state.containerDetailCurrentId)}`, 'POST', { format: 'xlsx' });
+          byId('ioResult').textContent = JSON.stringify(r, null, 2);
+          setMsg('柜单 Excel 导出完成');
+        } catch (err) { setMsg(err.message, false); }
+      };
+      byId('btnExportContainerPdf').onclick = async () => {
+        if (!state.containerDetailCurrentId) {
+          setMsg('请先查询柜次明细', false);
+          return;
+        }
+        try {
+          const r = await api(`/exports/container/${Number(state.containerDetailCurrentId)}`, 'POST', { format: 'pdf' });
+          byId('ioResult').textContent = JSON.stringify(r, null, 2);
+          setMsg('柜单 PDF 导出完成');
+        } catch (err) { setMsg(err.message, false); }
+      };
+
       byId('formAddContainerItem').onsubmit = async (e) => {
         e.preventDefault();
         const f = new FormData(e.target);
@@ -1594,6 +1805,15 @@
           setMsg('结算单导出完成');
         } catch (err) { setMsg(err.message, false); }
       };
+      byId('formExportContainer').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          const r = await api(`/exports/container/${Number(f.get('container_id'))}`, 'POST', { format: f.get('format') });
+          byId('ioResult').textContent = JSON.stringify(r, null, 2);
+          setMsg('柜单导出完成');
+        } catch (err) { setMsg(err.message, false); }
+      };
 
       byId('btnExportInventory').onclick = async () => {
         try {
@@ -1637,6 +1857,8 @@
     renderContainers();
     renderLedger(state.ledger);
     renderStatements();
+    renderCustomerItems([]);
+    renderContainerDetails();
     refreshSummary().catch(() => {});
     refreshImportBatches('', '', 20).catch(() => {});
     refreshPlannerData().catch(() => {});
