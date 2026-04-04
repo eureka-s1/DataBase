@@ -1,6 +1,33 @@
 # DataBase
 外贸货运数据库系统（仓储 + 拼柜 + 结算）
 
+## 非技术用户一键启动（推荐）
+如果你不熟悉命令行，按下面做即可：
+1. 打开项目文件夹，双击 `start_windows.bat`。
+2. 等待黑色窗口自动安装并启动（首次会慢一些）。
+3. 浏览器打开 `http://127.0.0.1:5000/login`。
+4. 使用默认账号登录：`admin / admin123`。
+5. 第一次登录后先改密码，再开始录入和导入数据。
+
+注意：
+- 使用期间不要关闭黑色窗口；关闭后系统会停止。
+- 下次使用时，再次双击 `start_windows.bat` 即可。
+
+## 一键打包
+### Windows（推荐）
+1. 双击 `package_release.bat`
+2. 打包完成后，到 `dist` 目录取 `DataBase_release_时间戳.zip`
+3. 解压 zip ，按包内 `WINDOWS_QUICK_START.txt` 启动
+
+### 命令行方式（WSL/Linux/Windows 通用）
+```bash
+python scripts/package_release.py
+```
+
+可选参数：
+- `--include-2025data`：把 `2025data` 一并打包（默认不包含，避免包太大）
+- `--name 自定义名称`：自定义压缩包名称
+
 ## 功能完成状态
 已实现并可运行：
 - 账号与权限基础：管理员默认账号、登录、改密、退出
@@ -30,6 +57,58 @@ python run.py
 ```bat
 start_windows.bat
 ```
+
+浏览器访问：
+- `http://127.0.0.1:5000/login`
+- 默认管理员：`admin / admin123`
+
+## Windows 使用指南
+### 1. 环境准备
+- Windows 10/11（64 位）。
+- 安装 Python 3.10+，并确保命令行可用 `py` 命令。
+- 建议将项目放在本地磁盘目录（如 `D:\DataBase`），不要放在只读目录。
+
+### 2. 首次启动
+1. 双击 `start_windows.bat`，或在 CMD/PowerShell 中执行：
+```bat
+start_windows.bat
+```
+2. 脚本会自动完成：
+- 创建虚拟环境 `.venv`
+- 安装依赖 `requirements.txt`
+- 初始化数据库
+- 启动 Flask 服务
+3. 打开浏览器访问 `http://127.0.0.1:5000/login`。
+
+### 3. Windows 数据目录（重要）
+- 默认数据目录：`%APPDATA%\CanyuShipping`
+- 默认数据库文件：`%APPDATA%\CanyuShipping\shipping.db`
+- 默认备份目录：`%APPDATA%\CanyuShipping\backups`
+
+可通过环境变量自定义路径（见 `.env.example`）：
+- `CANYU_DATA_DIR`
+- `CANYU_DB_PATH`
+- `CANYU_BACKUP_DIR`
+
+### 4. 关闭与下次启动
+- 在启动窗口按 `Ctrl + C` 停止服务。
+- 下次仍执行 `start_windows.bat` 即可。
+
+### 5. 常见问题
+- `py 不是内部或外部命令`：
+  - 重新安装 Python，勾选“Add Python to PATH”。
+- 依赖安装失败：
+  - 检查网络，或更换 pip 源后重试。
+- 5000 端口被占用：
+  - 关闭占用程序，或修改 [run.py](/home/eureka/database/DataBase/run.py) 中端口后重启。
+
+## Windows 用户须知
+- 首次登录后请立刻修改默认管理员密码 `admin123`。
+- `shipping.db` 是核心业务数据文件，请勿手工编辑或直接删除。
+- 每次重要操作后建议执行一次备份（`POST /backup` 或 `python scripts/backup_db.py`）。
+- 升级代码前先备份数据库，再执行更新，避免数据风险。
+- 导入 Excel 建议先走 `dry_run` 预演，再执行正式导入。
+- 若使用杀毒软件，请将项目目录和数据目录加入信任，避免锁库导致 SQLite 写入失败。
 
 ## 关键 API
 ### 认证
