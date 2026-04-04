@@ -3,7 +3,6 @@ from __future__ import annotations
 from sqlite3 import Connection
 
 from .common import now_ts, today_str
-from .pricing import resolve_price_per_m3
 
 
 def add_payment(conn: Connection, payload: dict, user_id: int) -> int:
@@ -44,14 +43,35 @@ def customer_deposit_balance(conn: Connection, customer_id: int) -> float:
     return round(float(paid['x']) - float(used['x']), 2)
 
 
+def _next_statement_no(conn: Connection, base_no: str) -> str:
+    no = (base_no or '').strip()
+    if not no:
+        raise ValueError('statement_no is empty')
+    exists = conn.execute('SELECT 1 FROM settlement_statements WHERE statement_no=? LIMIT 1', (no,)).fetchone()
+    if not exists:
+        return no
+    i = 2
+    while True:
+        candidate = f'{no}-{i}'
+        row = conn.execute('SELECT 1 FROM settlement_statements WHERE statement_no=? LIMIT 1', (candidate,)).fetchone()
+        if not row:
+            return candidate
+        i += 1
+
+
 def generate_statement(conn: Connection, container_id: int, user_id: int,
                        statement_no: str | None = None, statement_date: str | None = None) -> int:
-    c = conn.execute('SELECT id, default_price_per_m3 FROM containers WHERE id=?', (container_id,)).fetchone()
+    c = conn.execute('SELECT id, status, default_price_per_m3 FROM containers WHERE id=?', (container_id,)).fetchone()
     if not c:
         raise ValueError('container not found')
+    if c['status'] != 'CONFIRMED':
+        raise ValueError('only CONFIRMED container can be settled')
+    if c['default_price_per_m3'] is None:
+        raise ValueError('container unit price is required')
 
     date_val = statement_date or today_str()
-    no = statement_no or f'STM-{container_id}-{date_val.replace("-", "")}'
+    base_no = (statement_no or f'STM-{container_id}-{date_val.replace("-", "")}').strip()
+    no = _next_statement_no(conn, base_no)
     ts = now_ts()
 
     cur = conn.execute(
@@ -74,11 +94,14 @@ def generate_statement(conn: Connection, container_id: int, user_id: int,
         (container_id,),
     ).fetchall()
 
+    if not rows:
+        raise ValueError('container has no items')
+
+    container_price = float(c['default_price_per_m3'])
     for row in rows:
         cid = int(row['customer_id'])
         cbm_total = float(row['cbm_total'])
-        price = resolve_price_per_m3(conn, cid, on_date=date_val, container_default=c['default_price_per_m3'])
-        freight = round(cbm_total * price, 2)
+        freight = round(cbm_total * container_price, 2)
 
         available = customer_deposit_balance(conn, cid)
         use_deposit = round(min(available, freight), 2)
@@ -91,7 +114,7 @@ def generate_statement(conn: Connection, container_id: int, user_id: int,
                                          deposit_used, amount_due, amount_balance, remark)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
-            (statement_id, cid, cbm_total, price, freight, use_deposit, due, balance, None),
+            (statement_id, cid, cbm_total, container_price, freight, use_deposit, due, balance, None),
         )
         line_id = int(line_cur.lastrowid)
 
@@ -124,7 +147,21 @@ def generate_statement(conn: Connection, container_id: int, user_id: int,
 
 
 def post_statement(conn: Connection, statement_id: int) -> None:
+    row = conn.execute('SELECT status FROM settlement_statements WHERE id=?', (statement_id,)).fetchone()
+    if not row:
+        raise ValueError('statement not found')
+    if row['status'] != 'DRAFT':
+        raise ValueError('only DRAFT statement can be posted')
     conn.execute("UPDATE settlement_statements SET status='POSTED', updated_at=? WHERE id=?", (now_ts(), statement_id))
+
+
+def unpost_statement(conn: Connection, statement_id: int) -> None:
+    row = conn.execute('SELECT status FROM settlement_statements WHERE id=?', (statement_id,)).fetchone()
+    if not row:
+        raise ValueError('statement not found')
+    if row['status'] != 'POSTED':
+        raise ValueError('only POSTED statement can be unposted')
+    conn.execute("UPDATE settlement_statements SET status='DRAFT', updated_at=? WHERE id=?", (now_ts(), statement_id))
 
 
 def list_statements(conn: Connection, limit: int = 100) -> list[dict]:

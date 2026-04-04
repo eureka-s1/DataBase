@@ -100,8 +100,15 @@ def run() -> None:
     r = c.post('/settlements/generate', json={'container_id': container2_id, 'statement_date': '2026-04-04'})
     assert r.status_code == 201, r.data
     statement_id = r.get_json()['statement_id']
+    # duplicate statement_no should auto-resolve to a unique suffix
+    r = c.post('/settlements/generate', json={'container_id': container2_id, 'statement_date': '2026-04-04', 'statement_no': 'STM-DUP'})
+    assert r.status_code == 201, r.data
+    r = c.post('/settlements/generate', json={'container_id': container2_id, 'statement_date': '2026-04-04', 'statement_no': 'STM-DUP'})
+    assert r.status_code == 201, r.data
 
     r = c.post(f'/settlements/{statement_id}/post')
+    assert r.status_code == 200
+    r = c.post(f'/settlements/{statement_id}/unpost')
     assert r.status_code == 200
 
     # exports

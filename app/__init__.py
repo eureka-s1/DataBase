@@ -22,7 +22,7 @@ from .services.containers import (
     update_item_cbm_at_load,
 )
 from .services.customers import create_customer, find_customer_id_by_name, list_customers, merge_customers, resolve_customer_id, upsert_alias
-from .services.finance import add_payment, generate_statement, ledger, list_statements, post_statement
+from .services.finance import add_payment, generate_statement, ledger, list_statements, post_statement, unpost_statement
 from .services.importer import (
     import_inbound_excel,
     list_inbound_import_batches,
@@ -350,6 +350,13 @@ def create_app() -> Flask:
         with db_session() as conn:
             post_statement(conn, statement_id)
         return {'message': 'posted'}
+
+    @app.route('/settlements/<int:statement_id>/unpost', methods=['POST'])
+    @login_required
+    def unpost_settlement_api(statement_id: int):
+        with db_session() as conn:
+            unpost_statement(conn, statement_id)
+        return {'message': 'unposted'}
 
     @app.route('/settlements', methods=['GET'])
     @login_required

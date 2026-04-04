@@ -60,6 +60,7 @@
       border-radius: 10px;
       padding: 10px 12px;
     }
+    .collapsed { display: none; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { border-bottom: 1px solid #edf2f8; padding: 7px; text-align: left; }
     th { background: #f8fbff; }
@@ -155,9 +156,10 @@
           <div style="display:flex; gap:8px;">
             <button class="btn" id="btnInboundPrev" type="button">上一页</button>
             <button class="btn" id="btnInboundNext" type="button">下一页</button>
+            <button class="btn" id="btnInboundCollapse" type="button">收起</button>
           </div>
         </div>
-        <div class="card"><table id="tableInbound"></table></div>
+        <div class="card"><div id="inboundTableWrap"><table id="tableInbound"></table></div></div>
         <div class="card">
           <h3>手动修改在库商品</h3>
           <form id="formInboundEdit" class="inline">
@@ -208,9 +210,10 @@
           <div style="display:flex; gap:8px;">
             <button class="btn" id="btnLedgerPrev" type="button">上一页</button>
             <button class="btn" id="btnLedgerNext" type="button">下一页</button>
+            <button class="btn" id="btnLedgerCollapse" type="button">收起</button>
           </div>
         </div>
-        <div class="card"><table id="tableLedger"></table></div>
+        <div class="card"><div id="ledgerTableWrap"><table id="tableLedger"></table></div></div>
       </section>
 
       <section class="panel" id="panel-customer">
@@ -258,8 +261,25 @@
         </div>
         <div class="card">
           <h3>客户列表（别名表不实时占位展示）</h3>
-          <button class="btn" id="btnRefreshCustomers" type="button">刷新列表</button>
-          <table id="tableCustomers"></table>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <div style="display:flex; gap:8px; align-items:center;">
+              <button class="btn" id="btnRefreshCustomers" type="button">刷新列表</button>
+              <label>每页
+                <select id="customersPageSize">
+                  <option value="20">20</option>
+                  <option value="50" selected>50</option>
+                  <option value="100">100</option>
+                </select>
+              </label>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <div id="customersPageInfo" class="small"></div>
+              <button class="btn" id="btnCustomersPrev" type="button">上一页</button>
+              <button class="btn" id="btnCustomersNext" type="button">下一页</button>
+              <button class="btn" id="btnCustomersCollapse" type="button">收起</button>
+            </div>
+          </div>
+          <div id="customersTableWrap"><table id="tableCustomers"></table></div>
         </div>
       </section>
 
@@ -294,13 +314,22 @@
                 <div style="display:flex; gap:8px;">
                   <button class="btn" id="btnPlannerAvailPrev" type="button">上一页</button>
                   <button class="btn" id="btnPlannerAvailNext" type="button">下一页</button>
+                  <button class="btn" id="btnPlannerAvailCollapse" type="button">收起</button>
                 </div>
               </div>
-              <table id="tablePlannerAvailable"></table>
+              <div id="plannerAvailableWrap"><table id="tablePlannerAvailable"></table></div>
             </div>
             <div>
               <h4 style="margin:0 0 8px;">当前柜内货物（可改占用体积）</h4>
-              <table id="tablePlannerSelected"></table>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <div id="plannerSelectedPageInfo" class="small"></div>
+                <div style="display:flex; gap:8px;">
+                  <button class="btn" id="btnPlannerSelPrev" type="button">上一页</button>
+                  <button class="btn" id="btnPlannerSelNext" type="button">下一页</button>
+                  <button class="btn" id="btnPlannerSelCollapse" type="button">收起</button>
+                </div>
+              </div>
+              <div id="plannerSelectedWrap"><table id="tablePlannerSelected"></table></div>
             </div>
           </div>
         </div>
@@ -331,8 +360,25 @@
           </div>
         </div>
         <div class="card">
-          <button class="btn" id="btnRefreshContainers" type="button">刷新柜次列表</button>
-          <table id="tableContainers"></table>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <div style="display:flex; gap:8px; align-items:center;">
+              <button class="btn" id="btnRefreshContainers" type="button">刷新柜次列表</button>
+              <label>每页
+                <select id="containersPageSize">
+                  <option value="20">20</option>
+                  <option value="50" selected>50</option>
+                  <option value="100">100</option>
+                </select>
+              </label>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <div id="containersPageInfo" class="small"></div>
+              <button class="btn" id="btnContainersPrev" type="button">上一页</button>
+              <button class="btn" id="btnContainersNext" type="button">下一页</button>
+              <button class="btn" id="btnContainersCollapse" type="button">收起</button>
+            </div>
+          </div>
+          <div id="containersTableWrap"><table id="tableContainers"></table></div>
         </div>
       </section>
 
@@ -359,7 +405,9 @@
           <div class="card">
             <h3>生成/过账结算单</h3>
             <form id="formGenerateStatement" class="inline">
-              <label>柜次ID<input name="container_id" required></label>
+              <label>选择货柜
+                <select id="statementContainerId" name="container_id" required></select>
+              </label>
               <label>结算日期<input type="date" name="statement_date"></label>
               <label>结算单号(可空)<input name="statement_no"></label>
               <button class="btn primary" type="submit">生成结算单</button>
@@ -368,11 +416,32 @@
               <label>结算单ID<input name="statement_id" required></label>
               <button class="btn" type="submit">过账</button>
             </form>
+            <form id="formUnpostStatement" class="inline" style="margin-top:8px;">
+              <label>结算单ID<input name="statement_id" required></label>
+              <button class="btn" type="submit">撤销过账</button>
+            </form>
           </div>
         </div>
         <div class="card">
-          <button class="btn" id="btnRefreshStatements" type="button">刷新结算单列表</button>
-          <table id="tableStatements"></table>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <div style="display:flex; gap:8px; align-items:center;">
+              <button class="btn" id="btnRefreshStatements" type="button">刷新结算单列表</button>
+              <label>每页
+                <select id="statementsPageSize">
+                  <option value="20">20</option>
+                  <option value="50" selected>50</option>
+                  <option value="100">100</option>
+                </select>
+              </label>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <div id="statementsPageInfo" class="small"></div>
+              <button class="btn" id="btnStatementsPrev" type="button">上一页</button>
+              <button class="btn" id="btnStatementsNext" type="button">下一页</button>
+              <button class="btn" id="btnStatementsCollapse" type="button">收起</button>
+            </div>
+          </div>
+          <div id="statementsTableWrap"><table id="tableStatements"></table></div>
         </div>
       </section>
 
@@ -425,7 +494,15 @@
                 </label>
                 <button class="btn" type="submit">查询批次</button>
               </form>
-              <table id="tableImportBatches" style="margin-top:8px;"></table>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin:8px 0;">
+                <div id="importBatchPageInfo" class="small"></div>
+                <div style="display:flex; gap:8px;">
+                  <button class="btn" id="btnImportBatchPrev" type="button">上一页</button>
+                  <button class="btn" id="btnImportBatchNext" type="button">下一页</button>
+                  <button class="btn" id="btnImportBatchCollapse" type="button">收起</button>
+                </div>
+              </div>
+              <div id="importBatchTableWrap"><table id="tableImportBatches" style="margin-top:8px;"></table></div>
             </div>
           </div>
           <div class="card">
@@ -494,6 +571,17 @@
       plannerHideAllocated: true,
       plannerAvailablePage: 1,
       plannerAvailablePageSize: 30,
+      plannerSelectedPage: 1,
+      plannerSelectedPageSize: 20,
+      customersPage: 1,
+      customersPageSize: 50,
+      containersPage: 1,
+      containersPageSize: 50,
+      statementsPage: 1,
+      statementsPageSize: 50,
+      importBatchPage: 1,
+      importBatchPageSize: 20,
+      importBatchQuery: { batch_id: '', inbound_date: '', limit: 50 },
     };
 
     function setMsg(text, ok = true) {
@@ -551,10 +639,18 @@
     }
 
     function renderCustomers() {
-      const rows = state.customers.map(c =>
+      const allRows = state.customers.slice();
+      const pageSize = Number(state.customersPageSize || 50);
+      const totalPages = Math.max(1, Math.ceil(allRows.length / pageSize));
+      if (state.customersPage > totalPages) state.customersPage = totalPages;
+      if (state.customersPage < 1) state.customersPage = 1;
+      const start = (state.customersPage - 1) * pageSize;
+      const pageRows = allRows.slice(start, start + pageSize);
+      const rows = pageRows.map(c =>
         `<tr><td>${c.id}</td><td>${c.customer_code || ''}</td><td>${c.name || ''}</td><td>${(c.aliases || []).join(' / ')}</td><td>${c.default_price_per_m3 ?? ''}</td></tr>`
       );
       renderTable(document.getElementById('tableCustomers'), ['ID', '编码', '客户名', '别名', '默认单价'], rows);
+      byId('customersPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.customersPage}/${totalPages} 页`;
     }
 
     function renderInbound(rows = null) {
@@ -601,7 +697,14 @@
     }
 
     function renderContainers() {
-      const rows = state.containers.map(c =>
+      const allRows = state.containers.slice();
+      const pageSize = Number(state.containersPageSize || 50);
+      const totalPages = Math.max(1, Math.ceil(allRows.length / pageSize));
+      if (state.containersPage > totalPages) state.containersPage = totalPages;
+      if (state.containersPage < 1) state.containersPage = 1;
+      const start = (state.containersPage - 1) * pageSize;
+      const pageRows = allRows.slice(start, start + pageSize);
+      const rows = pageRows.map(c =>
         `<tr><td>${c.id}</td><td>${c.container_no || ''}</td><td>${c.status || ''}</td><td>${c.used_cbm ?? 0}</td><td>${c.capacity_cbm ?? 0}</td><td>${c.item_count ?? 0}</td></tr>`
       );
       renderTable(document.getElementById('tableContainers'), ['ID', '柜号', '状态', '已用CBM', '容量CBM', '件数'], rows);
@@ -609,6 +712,8 @@
         `<tr><td>${c.container_no || ''}</td><td>${c.status || ''}</td><td>${c.used_cbm ?? 0}/${c.capacity_cbm ?? 0}</td></tr>`
       ));
       renderPlannerContainerOptions();
+      renderStatementContainerOptions();
+      byId('containersPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.containersPage}/${totalPages} 页`;
     }
 
     function renderPlannerContainerOptions() {
@@ -621,6 +726,23 @@
       if (state.plannerContainerId) {
         el.value = String(state.plannerContainerId);
       }
+    }
+
+    function renderStatementContainerOptions() {
+      const el = byId('statementContainerId');
+      if (!el) return;
+      const current = el.value;
+      const confirmed = state.containers.filter(c => String(c.status || '') === 'CONFIRMED');
+      const options = ['<option value="">请选择货柜</option>'].concat(
+        confirmed.map(c => {
+          const unit = Number(c.default_price_per_m3 || 0).toFixed(2);
+          const used = Number(c.used_cbm || 0).toFixed(3);
+          const cap = Number(c.capacity_cbm || 68).toFixed(3);
+          return `<option value="${c.id}">${c.id} - ${c.container_no || ''} | 已用${used}/${cap}CBM | 单价${unit}/CBM</option>`;
+        })
+      );
+      el.innerHTML = options.join('');
+      if (current) el.value = current;
     }
 
     function renderPlannerAvailable() {
@@ -666,7 +788,14 @@
     }
 
     function renderPlannerSelected() {
-      const trs = state.plannerSelected.map(r => `
+      const allRows = state.plannerSelected.slice();
+      const pageSize = Number(state.plannerSelectedPageSize || 20);
+      const totalPages = Math.max(1, Math.ceil(allRows.length / pageSize));
+      if (state.plannerSelectedPage > totalPages) state.plannerSelectedPage = totalPages;
+      if (state.plannerSelectedPage < 1) state.plannerSelectedPage = 1;
+      const start = (state.plannerSelectedPage - 1) * pageSize;
+      const pageRows = allRows.slice(start, start + pageSize);
+      const trs = pageRows.map(r => `
         <tr>
           <td>${r.inbound_item_id}</td>
           <td>${r.inbound_date || ''}</td>
@@ -682,6 +811,7 @@
         </tr>
       `);
       renderTable(byId('tablePlannerSelected'), ['货物ID', '入库日期', '客户', 'ITEM NO', '品名', '原CBM', '装柜CBM', '操作'], trs);
+      byId('plannerSelectedPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.plannerSelectedPage}/${totalPages} 页`;
     }
 
     async function refreshPlannerUsage() {
@@ -728,10 +858,18 @@
     }
 
     function renderStatements() {
-      const rows = state.statements.map(s =>
+      const allRows = state.statements.slice();
+      const pageSize = Number(state.statementsPageSize || 50);
+      const totalPages = Math.max(1, Math.ceil(allRows.length / pageSize));
+      if (state.statementsPage > totalPages) state.statementsPage = totalPages;
+      if (state.statementsPage < 1) state.statementsPage = 1;
+      const start = (state.statementsPage - 1) * pageSize;
+      const pageRows = allRows.slice(start, start + pageSize);
+      const rows = pageRows.map(s =>
         `<tr><td>${s.id}</td><td>${s.statement_no || ''}</td><td>${s.container_no || ''}</td><td>${s.statement_date || ''}</td><td>${s.status || ''}</td><td>${s.created_at || ''}</td></tr>`
       );
       renderTable(document.getElementById('tableStatements'), ['ID', '结算单号', '柜号', '结算日期', '状态', '创建时间'], rows);
+      byId('statementsPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.statementsPage}/${totalPages} 页`;
     }
 
     async function refreshCustomers() { state.customers = await api('/customers'); renderCustomers(); }
@@ -745,11 +883,31 @@
       byId('statStatements').textContent = String(state.summary.statement_count || 0);
     }
     async function refreshImportBatches(batchId = '', inboundDate = '', limit = 50) {
-      let path = `/import/inbound/batches?limit=${encodeURIComponent(String(limit || 50))}`;
-      if (batchId) path += `&batch_id=${encodeURIComponent(String(batchId))}`;
-      if (inboundDate) path += `&inbound_date=${encodeURIComponent(String(inboundDate))}`;
+      const qBatch = String(batchId || '').trim();
+      const qDate = String(inboundDate || '').trim();
+      const qLimit = Number(limit || 50);
+      if (
+        state.importBatchQuery.batch_id !== qBatch ||
+        state.importBatchQuery.inbound_date !== qDate ||
+        state.importBatchQuery.limit !== qLimit
+      ) {
+        state.importBatchPage = 1;
+      }
+      state.importBatchQuery.batch_id = qBatch;
+      state.importBatchQuery.inbound_date = qDate;
+      state.importBatchQuery.limit = qLimit;
+      let path = `/import/inbound/batches?limit=${encodeURIComponent(String(qLimit || 50))}`;
+      if (qBatch) path += `&batch_id=${encodeURIComponent(String(qBatch))}`;
+      if (qDate) path += `&inbound_date=${encodeURIComponent(String(qDate))}`;
       state.importBatches = await api(path);
-      const rows = state.importBatches.map(b =>
+      const allRows = state.importBatches.slice();
+      const pageSize = Number(state.importBatchPageSize || 20);
+      const totalPages = Math.max(1, Math.ceil(allRows.length / pageSize));
+      if (state.importBatchPage > totalPages) state.importBatchPage = totalPages;
+      if (state.importBatchPage < 1) state.importBatchPage = 1;
+      const start = (state.importBatchPage - 1) * pageSize;
+      const pageRows = allRows.slice(start, start + pageSize);
+      const rows = pageRows.map(b =>
         `<tr>
           <td>${b.batch_id}</td>
           <td>${b.batch_no || ''}</td>
@@ -761,6 +919,7 @@
         </tr>`
       );
       renderTable(byId('tableImportBatches'), ['批次ID', '批次号', '入库日期', '成功/总行', '在库条数', '导入时间', '操作'], rows);
+      byId('importBatchPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.importBatchPage}/${totalPages} 页`;
     }
 
     function buildInboundQueryPath() {
@@ -802,6 +961,15 @@
     function byId(id) { return document.getElementById(id); }
 
     function setupForms() {
+      const bindCollapse = (btnId, wrapId) => {
+        byId(btnId).onclick = () => {
+          const wrap = byId(wrapId);
+          const btn = byId(btnId);
+          const hidden = wrap.classList.toggle('collapsed');
+          btn.textContent = hidden ? '展开' : '收起';
+        };
+      };
+
       byId('btnRefreshCustomers').onclick = async () => {
         try { await refreshCustomers(); setMsg('客户列表已刷新'); } catch (e) { setMsg(e.message, false); }
       };
@@ -811,6 +979,41 @@
       byId('btnRefreshStatements').onclick = async () => {
         try { await refreshStatements(); setMsg('结算单列表已刷新'); } catch (e) { setMsg(e.message, false); }
       };
+      bindCollapse('btnCustomersCollapse', 'customersTableWrap');
+      bindCollapse('btnContainersCollapse', 'containersTableWrap');
+      bindCollapse('btnStatementsCollapse', 'statementsTableWrap');
+      bindCollapse('btnImportBatchCollapse', 'importBatchTableWrap');
+      bindCollapse('btnPlannerSelCollapse', 'plannerSelectedWrap');
+      bindCollapse('btnInboundCollapse', 'inboundTableWrap');
+      bindCollapse('btnLedgerCollapse', 'ledgerTableWrap');
+      bindCollapse('btnPlannerAvailCollapse', 'plannerAvailableWrap');
+      byId('customersPageSize').onchange = (e) => { state.customersPageSize = Number(e.target.value || 50); state.customersPage = 1; renderCustomers(); };
+      byId('containersPageSize').onchange = (e) => { state.containersPageSize = Number(e.target.value || 50); state.containersPage = 1; renderContainers(); };
+      byId('statementsPageSize').onchange = (e) => { state.statementsPageSize = Number(e.target.value || 50); state.statementsPage = 1; renderStatements(); };
+      byId('btnCustomersPrev').onclick = () => { state.customersPage -= 1; renderCustomers(); };
+      byId('btnCustomersNext').onclick = () => { state.customersPage += 1; renderCustomers(); };
+      byId('btnContainersPrev').onclick = () => { state.containersPage -= 1; renderContainers(); };
+      byId('btnContainersNext').onclick = () => { state.containersPage += 1; renderContainers(); };
+      byId('btnStatementsPrev').onclick = () => { state.statementsPage -= 1; renderStatements(); };
+      byId('btnStatementsNext').onclick = () => { state.statementsPage += 1; renderStatements(); };
+      byId('btnImportBatchPrev').onclick = () => {
+        state.importBatchPage -= 1;
+        refreshImportBatches(
+          state.importBatchQuery.batch_id,
+          state.importBatchQuery.inbound_date,
+          state.importBatchQuery.limit,
+        ).catch(err => setMsg(err.message, false));
+      };
+      byId('btnImportBatchNext').onclick = () => {
+        state.importBatchPage += 1;
+        refreshImportBatches(
+          state.importBatchQuery.batch_id,
+          state.importBatchQuery.inbound_date,
+          state.importBatchQuery.limit,
+        ).catch(err => setMsg(err.message, false));
+      };
+      byId('btnPlannerSelPrev').onclick = () => { state.plannerSelectedPage -= 1; renderPlannerSelected(); };
+      byId('btnPlannerSelNext').onclick = () => { state.plannerSelectedPage += 1; renderPlannerSelected(); };
 
       byId('formCreateCustomer').onsubmit = async (e) => {
         e.preventDefault();
@@ -1233,6 +1436,17 @@
           await refreshStatements();
           await refreshSummary();
           setMsg('结算单已过账');
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formUnpostStatement').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          await api(`/settlements/${Number(f.get('statement_id'))}/unpost`, 'POST', {});
+          await refreshStatements();
+          await refreshSummary();
+          setMsg('结算单已撤销过账');
         } catch (err) { setMsg(err.message, false); }
       };
 
