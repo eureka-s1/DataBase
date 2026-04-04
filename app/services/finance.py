@@ -127,6 +127,20 @@ def post_statement(conn: Connection, statement_id: int) -> None:
     conn.execute("UPDATE settlement_statements SET status='POSTED', updated_at=? WHERE id=?", (now_ts(), statement_id))
 
 
+def list_statements(conn: Connection, limit: int = 100) -> list[dict]:
+    rows = conn.execute(
+        '''
+        SELECT s.id, s.statement_no, s.statement_date, s.status, s.currency, c.container_no, s.created_at
+        FROM settlement_statements s
+        JOIN containers c ON c.id = s.container_id
+        ORDER BY s.id DESC
+        LIMIT ?
+        ''',
+        (limit,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def ledger(conn: Connection, customer_id: int | None = None) -> list[dict]:
     where = ''
     args = []

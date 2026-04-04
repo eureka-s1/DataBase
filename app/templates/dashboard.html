@@ -5,56 +5,702 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>业务面板</title>
   <style>
-    body { font-family: "Segoe UI", "PingFang SC", sans-serif; margin: 16px; background: #f5f9fd; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
-    .card { background: #fff; border: 1px solid #d8e6f5; border-radius: 12px; padding: 12px; }
+    :root {
+      --bg: #f3f7fb;
+      --card: #ffffff;
+      --line: #d8e2ef;
+      --text: #1b2a3a;
+      --muted: #66788d;
+      --brand: #115e9d;
+      --brand-soft: #e9f3fc;
+      --ok: #0f6f42;
+      --err: #a62828;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Segoe UI", "PingFang SC", sans-serif; background: var(--bg); color: var(--text); }
+    .layout { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+    .sidebar { padding: 16px; border-right: 1px solid var(--line); background: #eef4fa; }
+    .brand { font-weight: 700; margin-bottom: 8px; }
+    .user { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
+    .tabs { display: grid; gap: 8px; }
+    .tab-btn {
+      border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 10px;
+      text-align: left; cursor: pointer; font-size: 14px;
+    }
+    .tab-btn.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+    .content { padding: 18px; }
+    .topbar { display: flex; gap: 8px; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .actions { display: flex; gap: 8px; }
+    .btn {
+      border: 1px solid #b8cbe0; background: #fff; border-radius: 8px; padding: 8px 12px; cursor: pointer;
+    }
+    .btn.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+    .card h3 { margin: 0 0 10px; font-size: 16px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+    .stat { background: var(--brand-soft); border: 1px solid #c7ddf2; border-radius: 10px; padding: 10px; }
+    .stat b { font-size: 20px; display: block; margin-top: 6px; }
+    form.inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+    label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+    input, select, textarea {
+      border: 1px solid #c8d4e3; border-radius: 8px; padding: 7px 8px; min-width: 120px;
+      font-size: 14px; background: #fff;
+    }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th, td { border-bottom: 1px solid #edf3f9; text-align: left; padding: 6px; }
-    h3 { margin: 4px 0 10px; }
+    th, td { border-bottom: 1px solid #edf2f8; padding: 7px; text-align: left; }
+    th { background: #f8fbff; }
+    .small { color: var(--muted); font-size: 12px; }
+    .msg { padding: 10px; border-radius: 8px; margin-bottom: 12px; display: none; }
+    .msg.ok { display: block; background: #ecfaf1; border: 1px solid #b8e5ca; color: var(--ok); }
+    .msg.err { display: block; background: #fff1f1; border: 1px solid #efc5c5; color: var(--err); }
+    pre { margin: 0; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: #f8fbff; overflow: auto; }
+    details { margin-top: 8px; }
+    @media (max-width: 920px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
+      .tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .tab-btn { text-align: center; font-size: 13px; padding: 8px; }
+    }
   </style>
 </head>
 <body>
-  <p><a href="/">返回首页</a></p>
-  <div class="grid">
-    <div class="card">
-      <h3>客户（{{ customers|length }}）</h3>
-      <table>
-        <tr><th>ID</th><th>名称</th><th>别名数</th></tr>
-        {% for c in customers[:20] %}
-          <tr><td>{{ c.id }}</td><td>{{ c.name }}</td><td>{{ c.aliases|length }}</td></tr>
-        {% endfor %}
-      </table>
-    </div>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">璨宇仓储系统</div>
+      <div class="user">用户：{{ user.username }}（{{ user.role }}）</div>
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="overview">总览</button>
+        <button class="tab-btn" data-tab="query">查询</button>
+        <button class="tab-btn" data-tab="customer">客户与价格</button>
+        <button class="tab-btn" data-tab="container">拼柜</button>
+        <button class="tab-btn" data-tab="finance">结算</button>
+        <button class="tab-btn" data-tab="io">导入导出</button>
+        <button class="tab-btn" data-tab="account">账户</button>
+      </div>
+    </aside>
 
-    <div class="card">
-      <h3>在库货物（前50）</h3>
-      <table>
-        <tr><th>单号</th><th>客户</th><th>品名</th><th>CBM</th></tr>
-        {% for i in inbound %}
-          <tr><td>{{ i.inbound_no }}</td><td>{{ i.customer_name }}</td><td>{{ i.item_name_cn }}</td><td>{{ i.cbm_final }}</td></tr>
-        {% endfor %}
-      </table>
-    </div>
+    <main class="content">
+      <div class="topbar">
+        <div class="small">采用分模块查看，避免所有表格同时挤在一页</div>
+        <div class="actions">
+          <a href="/" class="btn">返回首页</a>
+          <form method="post" action="/logout"><button class="btn" type="submit">退出登录</button></form>
+        </div>
+      </div>
+      <div id="msg" class="msg"></div>
 
-    <div class="card">
-      <h3>柜次（{{ containers|length }}）</h3>
-      <table>
-        <tr><th>柜号</th><th>状态</th><th>已用/容量</th></tr>
-        {% for c in containers %}
-          <tr><td>{{ c.container_no }}</td><td>{{ c.status }}</td><td>{{ c.used_cbm }} / {{ c.capacity_cbm }}</td></tr>
-        {% endfor %}
-      </table>
-    </div>
+      <section class="panel active" id="panel-overview">
+        <div class="card">
+          <h3>数据总览</h3>
+          <div class="stats">
+            <div class="stat">客户数<b id="statCustomers">0</b></div>
+            <div class="stat">在库货物<b id="statInbound">0</b></div>
+            <div class="stat">柜次数<b id="statContainers">0</b></div>
+            <div class="stat">结算单<b id="statStatements">0</b></div>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <h3>最近柜次</h3>
+            <table id="tableContainersMini"></table>
+          </div>
+          <div class="card">
+            <h3>客户总账（前10）</h3>
+            <table id="tableLedgerMini"></table>
+          </div>
+        </div>
+      </section>
 
-    <div class="card">
-      <h3>客户总账</h3>
-      <table>
-        <tr><th>客户</th><th>充值</th><th>运费</th><th>净余额</th></tr>
-        {% for r in ledger_rows %}
-          <tr><td>{{ r.name }}</td><td>{{ r.total_deposit }}</td><td>{{ r.total_freight }}</td><td>{{ r.net_balance }}</td></tr>
-        {% endfor %}
-      </table>
-    </div>
+      <section class="panel" id="panel-query">
+        <div class="card">
+          <h3>在库查询</h3>
+          <form id="formInboundQuery" class="inline">
+            <label>入库日期<input type="date" name="inbound_date"></label>
+            <label>只看在库<select name="only_in_stock"><option value="1">是</option><option value="0">否</option></select></label>
+            <label>关键字<input name="keyword" placeholder="单号/客户/品名"></label>
+            <button class="btn primary" type="submit">查询</button>
+          </form>
+        </div>
+        <div class="card"><table id="tableInbound"></table></div>
+
+        <div class="card">
+          <h3>总账查询</h3>
+          <form id="formLedgerQuery" class="inline">
+            <label>客户ID（可空）<input name="customer_id" placeholder="例如 1"></label>
+            <button class="btn primary" type="submit">查询</button>
+          </form>
+        </div>
+        <div class="card"><table id="tableLedger"></table></div>
+      </section>
+
+      <section class="panel" id="panel-customer">
+        <div class="grid-2">
+          <div class="card">
+            <h3>新增客户</h3>
+            <form id="formCreateCustomer" class="inline">
+              <label>客户编码<input name="customer_code" required></label>
+              <label>客户名<input name="name" required></label>
+              <label>电话<input name="phone"></label>
+              <label>国家<input name="country"></label>
+              <label>邮箱<input name="email"></label>
+              <label>默认单价<input name="default_price_per_m3" type="number" step="0.01" value="89.71"></label>
+              <button class="btn primary" type="submit">创建</button>
+            </form>
+            <details>
+              <summary>别名维护（默认折叠）</summary>
+              <form id="formAlias" class="inline" style="margin-top:8px;">
+                <label>客户ID<input name="customer_id" required></label>
+                <label>别名<input name="alias_name" required></label>
+                <button class="btn primary" type="submit">保存别名</button>
+              </form>
+            </details>
+          </div>
+          <div class="card">
+            <h3>价格规则</h3>
+            <form id="formPriceRule" class="inline">
+              <label>客户ID<input name="customer_id" required></label>
+              <label>生效起<input type="date" name="effective_from" required></label>
+              <label>生效止<input type="date" name="effective_to"></label>
+              <label>单价<input name="price_per_m3" type="number" step="0.01" required></label>
+              <button class="btn primary" type="submit">保存价格</button>
+            </form>
+          </div>
+        </div>
+        <div class="card">
+          <h3>客户列表（别名表不实时占位展示）</h3>
+          <button class="btn" id="btnRefreshCustomers" type="button">刷新列表</button>
+          <table id="tableCustomers"></table>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-container">
+        <div class="grid-2">
+          <div class="card">
+            <h3>新建柜次</h3>
+            <form id="formCreateContainer" class="inline">
+              <label>柜号<input name="container_no" required></label>
+              <label>容量(CBM)<input name="capacity_cbm" type="number" step="0.001" value="68"></label>
+              <label>默认单价<input name="default_price_per_m3" type="number" step="0.01"></label>
+              <button class="btn primary" type="submit">创建柜次</button>
+            </form>
+          </div>
+          <div class="card">
+            <h3>装柜操作</h3>
+            <form id="formAddContainerItem" class="inline">
+              <label>柜次ID<input name="container_id" required></label>
+              <label>货物ID<input name="inbound_item_id" required></label>
+              <label>装柜体积(可空)<input name="cbm_at_load" type="number" step="0.001"></label>
+              <button class="btn primary" type="submit">加入柜次</button>
+            </form>
+            <form id="formRemoveContainerItem" class="inline" style="margin-top:8px;">
+              <label>柜次ID<input name="container_id" required></label>
+              <label>货物ID<input name="inbound_item_id" required></label>
+              <button class="btn" type="submit">移除货物</button>
+            </form>
+          </div>
+        </div>
+        <div class="card">
+          <h3>柜次状态与确认</h3>
+          <form id="formContainerUsage" class="inline">
+            <label>柜次ID<input name="container_id" required></label>
+            <button class="btn" type="submit">查询占用</button>
+          </form>
+          <pre id="usageResult" style="margin-top:8px;"></pre>
+          <form id="formContainerConfirm" class="inline" style="margin-top:8px;">
+            <label>柜次ID<input name="container_id" required></label>
+            <button class="btn primary" type="submit">确认出柜</button>
+          </form>
+          <form id="formContainerRevoke" class="inline" style="margin-top:8px;">
+            <label>柜次ID<input name="container_id" required></label>
+            <button class="btn" type="submit">撤回柜次</button>
+          </form>
+        </div>
+        <div class="card">
+          <button class="btn" id="btnRefreshContainers" type="button">刷新柜次列表</button>
+          <table id="tableContainers"></table>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-finance">
+        <div class="grid-2">
+          <div class="card">
+            <h3>登记定金</h3>
+            <form id="formPayment" class="inline">
+              <label>收款单号<input name="payment_no" required></label>
+              <label>客户ID<input name="customer_id" required></label>
+              <label>收款日期<input type="date" name="payment_date"></label>
+              <label>金额<input type="number" step="0.01" name="amount" required></label>
+              <label>方式
+                <select name="method">
+                  <option>WECHAT</option>
+                  <option>ALIPAY</option>
+                  <option>BANK</option>
+                  <option>CASH</option>
+                </select>
+              </label>
+              <button class="btn primary" type="submit">保存定金</button>
+            </form>
+          </div>
+          <div class="card">
+            <h3>生成/过账结算单</h3>
+            <form id="formGenerateStatement" class="inline">
+              <label>柜次ID<input name="container_id" required></label>
+              <label>结算日期<input type="date" name="statement_date"></label>
+              <label>结算单号(可空)<input name="statement_no"></label>
+              <button class="btn primary" type="submit">生成结算单</button>
+            </form>
+            <form id="formPostStatement" class="inline" style="margin-top:8px;">
+              <label>结算单ID<input name="statement_id" required></label>
+              <button class="btn" type="submit">过账</button>
+            </form>
+          </div>
+        </div>
+        <div class="card">
+          <button class="btn" id="btnRefreshStatements" type="button">刷新结算单列表</button>
+          <table id="tableStatements"></table>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-io">
+        <div class="grid-2">
+          <div class="card">
+            <h3>导入预览/执行</h3>
+            <form id="formImportPreview" class="inline">
+              <label>Excel 文件路径<input name="file_path" required placeholder="如 C:\data\inbound.xlsx"></label>
+              <button class="btn" type="submit">预览字段映射</button>
+            </form>
+            <pre id="importPreview" style="margin-top:8px;"></pre>
+            <form id="formImportExecute" class="inline" style="margin-top:8px;">
+              <label>Excel 文件路径<input name="file_path" required></label>
+              <label>入库日期<input name="inbound_date" type="date" required></label>
+              <label>仅演练
+                <select name="dry_run"><option value="1">是</option><option value="0">否</option></select>
+              </label>
+              <button class="btn primary" type="submit">执行导入</button>
+            </form>
+          </div>
+          <div class="card">
+            <h3>导出与备份</h3>
+            <form id="formExportDaily" class="inline">
+              <label>日期<input type="date" name="inbound_date" required></label>
+              <button class="btn" type="submit">导出日入库</button>
+            </form>
+            <form id="formExportStatement" class="inline" style="margin-top:8px;">
+              <label>结算单ID<input name="statement_id" required></label>
+              <label>格式<select name="format"><option value="xlsx">xlsx</option><option value="pdf">pdf</option></select></label>
+              <button class="btn" type="submit">导出账单</button>
+            </form>
+            <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+              <button class="btn" id="btnExportInventory" type="button">导出库存</button>
+              <button class="btn" id="btnExportLedger" type="button">导出总账</button>
+              <button class="btn primary" id="btnBackup" type="button">立即备份</button>
+            </div>
+            <pre id="ioResult" style="margin-top:8px;"></pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-account">
+        <div class="card">
+          <h3>修改密码</h3>
+          <form id="formChangePwd" class="inline">
+            <label>新密码<input name="new_password" type="password" minlength="6" required></label>
+            <button class="btn primary" type="submit">保存新密码</button>
+          </form>
+        </div>
+      </section>
+    </main>
   </div>
+
+  <script>
+    const state = {
+      customers: {{ customers|tojson }},
+      inbound: {{ inbound|tojson }},
+      containers: {{ containers|tojson }},
+      ledger: {{ ledger_rows|tojson }},
+      statements: {{ statements|tojson }},
+    };
+
+    function setMsg(text, ok = true) {
+      const box = document.getElementById('msg');
+      box.className = ok ? 'msg ok' : 'msg err';
+      box.textContent = text;
+    }
+
+    async function api(path, method = 'GET', body = null) {
+      const options = { method, headers: {}, credentials: 'same-origin' };
+      if (body !== null) {
+        options.headers['Content-Type'] = 'application/json';
+        options.body = JSON.stringify(body);
+      }
+      const res = await fetch(path, options);
+      if (res.redirected && res.url.includes('/login')) {
+        window.location.href = '/login';
+        return;
+      }
+      const ct = res.headers.get('content-type') || '';
+      const data = ct.includes('application/json') ? await res.json() : await res.text();
+      if (!res.ok) {
+        const msg = (data && data.error) ? data.error : (typeof data === 'string' ? data : JSON.stringify(data));
+        throw new Error(msg);
+      }
+      return data;
+    }
+
+    function renderTable(el, headers, rows) {
+      const head = '<tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr>';
+      el.innerHTML = head + rows.join('');
+    }
+
+    function renderCustomers() {
+      const rows = state.customers.map(c =>
+        `<tr><td>${c.id}</td><td>${c.customer_code || ''}</td><td>${c.name || ''}</td><td>${c.aliases ? c.aliases.length : 0}</td><td>${c.default_price_per_m3 ?? ''}</td></tr>`
+      );
+      renderTable(document.getElementById('tableCustomers'), ['ID', '编码', '客户名', '别名数', '默认单价'], rows);
+      document.getElementById('statCustomers').textContent = String(state.customers.length);
+    }
+
+    function renderInbound(rows = state.inbound) {
+      const trs = rows.map(i =>
+        `<tr><td>${i.id}</td><td>${i.inbound_no || ''}</td><td>${i.inbound_date || ''}</td><td>${i.customer_name || ''}</td><td>${i.item_name_cn || ''}</td><td>${i.status || ''}</td><td>${i.cbm_final ?? ''}</td></tr>`
+      );
+      renderTable(document.getElementById('tableInbound'), ['ID', '入库单号', '日期', '客户', '品名', '状态', 'CBM'], trs);
+      document.getElementById('statInbound').textContent = String(rows.length);
+    }
+
+    function renderContainers() {
+      const rows = state.containers.map(c =>
+        `<tr><td>${c.id}</td><td>${c.container_no || ''}</td><td>${c.status || ''}</td><td>${c.used_cbm ?? 0}</td><td>${c.capacity_cbm ?? 0}</td><td>${c.item_count ?? 0}</td></tr>`
+      );
+      renderTable(document.getElementById('tableContainers'), ['ID', '柜号', '状态', '已用CBM', '容量CBM', '件数'], rows);
+      renderTable(document.getElementById('tableContainersMini'), ['柜号', '状态', '已用/容量'], state.containers.slice(0, 10).map(c =>
+        `<tr><td>${c.container_no || ''}</td><td>${c.status || ''}</td><td>${c.used_cbm ?? 0}/${c.capacity_cbm ?? 0}</td></tr>`
+      ));
+      document.getElementById('statContainers').textContent = String(state.containers.length);
+    }
+
+    function renderLedger(rows = state.ledger) {
+      const trs = rows.map(r =>
+        `<tr><td>${r.customer_id}</td><td>${r.name || ''}</td><td>${r.total_deposit ?? 0}</td><td>${r.total_freight ?? 0}</td><td>${r.net_balance ?? 0}</td></tr>`
+      );
+      renderTable(document.getElementById('tableLedger'), ['客户ID', '客户名', '总定金', '总运费', '净余额'], trs);
+      renderTable(document.getElementById('tableLedgerMini'), ['客户', '定金', '运费', '净余额'], rows.slice(0, 10).map(r =>
+        `<tr><td>${r.name || ''}</td><td>${r.total_deposit ?? 0}</td><td>${r.total_freight ?? 0}</td><td>${r.net_balance ?? 0}</td></tr>`
+      ));
+    }
+
+    function renderStatements() {
+      const rows = state.statements.map(s =>
+        `<tr><td>${s.id}</td><td>${s.statement_no || ''}</td><td>${s.container_no || ''}</td><td>${s.statement_date || ''}</td><td>${s.status || ''}</td><td>${s.created_at || ''}</td></tr>`
+      );
+      renderTable(document.getElementById('tableStatements'), ['ID', '结算单号', '柜号', '结算日期', '状态', '创建时间'], rows);
+      document.getElementById('statStatements').textContent = String(state.statements.length);
+    }
+
+    async function refreshCustomers() { state.customers = await api('/customers'); renderCustomers(); }
+    async function refreshContainers() { state.containers = await api('/containers'); renderContainers(); }
+    async function refreshStatements() { state.statements = await api('/settlements'); renderStatements(); }
+
+    function setupTabs() {
+      const btns = document.querySelectorAll('.tab-btn');
+      const panels = document.querySelectorAll('.panel');
+      btns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const target = btn.dataset.tab;
+          btns.forEach(x => x.classList.remove('active'));
+          panels.forEach(x => x.classList.remove('active'));
+          btn.classList.add('active');
+          document.getElementById('panel-' + target).classList.add('active');
+        });
+      });
+    }
+
+    function byId(id) { return document.getElementById(id); }
+
+    function setupForms() {
+      byId('btnRefreshCustomers').onclick = async () => {
+        try { await refreshCustomers(); setMsg('客户列表已刷新'); } catch (e) { setMsg(e.message, false); }
+      };
+      byId('btnRefreshContainers').onclick = async () => {
+        try { await refreshContainers(); setMsg('柜次列表已刷新'); } catch (e) { setMsg(e.message, false); }
+      };
+      byId('btnRefreshStatements').onclick = async () => {
+        try { await refreshStatements(); setMsg('结算单列表已刷新'); } catch (e) { setMsg(e.message, false); }
+      };
+
+      byId('formCreateCustomer').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          await api('/customers', 'POST', {
+            customer_code: f.get('customer_code'), name: f.get('name'),
+            phone: f.get('phone'), country: f.get('country'), email: f.get('email'),
+            default_price_per_m3: Number(f.get('default_price_per_m3') || 89.71),
+          });
+          await refreshCustomers();
+          setMsg('客户已创建');
+          e.target.reset();
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formAlias').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          await api('/customer-aliases', 'POST', {
+            customer_id: Number(f.get('customer_id')),
+            alias_name: f.get('alias_name'),
+          });
+          setMsg('别名已保存');
+          e.target.reset();
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formPriceRule').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          await api('/price-rules', 'POST', {
+            customer_id: Number(f.get('customer_id')),
+            effective_from: f.get('effective_from'),
+            effective_to: f.get('effective_to') || null,
+            price_per_m3: Number(f.get('price_per_m3')),
+          });
+          setMsg('价格规则已保存');
+          e.target.reset();
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formInboundQuery').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        const d = f.get('inbound_date');
+        const only = f.get('only_in_stock');
+        const kw = String(f.get('keyword') || '').trim().toUpperCase();
+        let path = '/inbound-items?';
+        if (d) path += 'inbound_date=' + encodeURIComponent(d) + '&';
+        if (only) path += 'only_in_stock=' + encodeURIComponent(only);
+        try {
+          let rows = await api(path);
+          if (kw) {
+            rows = rows.filter(r => {
+              const s = `${r.inbound_no || ''} ${r.customer_name || ''} ${r.item_name_cn || ''}`.toUpperCase();
+              return s.includes(kw);
+            });
+          }
+          renderInbound(rows);
+          setMsg('查询完成');
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formLedgerQuery').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        const customerId = String(f.get('customer_id') || '').trim();
+        const path = customerId ? `/ledger?customer_id=${encodeURIComponent(customerId)}` : '/ledger';
+        try {
+          const rows = await api(path);
+          state.ledger = rows;
+          renderLedger(rows);
+          setMsg('总账查询完成');
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formCreateContainer').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          await api('/containers', 'POST', {
+            container_no: f.get('container_no'),
+            capacity_cbm: Number(f.get('capacity_cbm') || 68),
+            default_price_per_m3: f.get('default_price_per_m3') ? Number(f.get('default_price_per_m3')) : null,
+          });
+          await refreshContainers();
+          setMsg('柜次已创建');
+          e.target.reset();
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formAddContainerItem').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        const containerId = Number(f.get('container_id'));
+        const payload = { inbound_item_id: Number(f.get('inbound_item_id')) };
+        if (String(f.get('cbm_at_load') || '').trim()) payload.cbm_at_load = Number(f.get('cbm_at_load'));
+        try {
+          await api(`/containers/${containerId}/items`, 'POST', payload);
+          await refreshContainers();
+          setMsg('货物已加入柜次');
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formRemoveContainerItem').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          await api(`/containers/${Number(f.get('container_id'))}/items/${Number(f.get('inbound_item_id'))}`, 'DELETE');
+          await refreshContainers();
+          setMsg('货物已移除');
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formContainerUsage').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          const usage = await api(`/containers/${Number(f.get('container_id'))}/usage`);
+          byId('usageResult').textContent = JSON.stringify(usage, null, 2);
+          setMsg('占用信息已更新');
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formContainerConfirm').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          await api(`/containers/${Number(f.get('container_id'))}/confirm`, 'POST', {});
+          await refreshContainers();
+          setMsg('柜次已确认出柜');
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formContainerRevoke').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          await api(`/containers/${Number(f.get('container_id'))}/revoke`, 'POST', {});
+          await refreshContainers();
+          setMsg('柜次已撤回');
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formPayment').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          await api('/payments', 'POST', {
+            payment_no: f.get('payment_no'),
+            customer_id: Number(f.get('customer_id')),
+            payment_date: f.get('payment_date') || undefined,
+            amount: Number(f.get('amount')),
+            method: f.get('method'),
+          });
+          setMsg('定金已登记');
+          e.target.reset();
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formGenerateStatement').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          const r = await api('/settlements/generate', 'POST', {
+            container_id: Number(f.get('container_id')),
+            statement_date: f.get('statement_date') || undefined,
+            statement_no: f.get('statement_no') || undefined,
+          });
+          await refreshStatements();
+          setMsg('结算单已生成，ID=' + r.statement_id);
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formPostStatement').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          await api(`/settlements/${Number(f.get('statement_id'))}/post`, 'POST', {});
+          await refreshStatements();
+          setMsg('结算单已过账');
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formImportPreview').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          const r = await api('/import/inbound/preview', 'POST', { file_path: f.get('file_path') });
+          byId('importPreview').textContent = JSON.stringify(r, null, 2);
+          setMsg('导入预览完成');
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formImportExecute').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          const r = await api('/import/inbound/execute', 'POST', {
+            file_path: f.get('file_path'),
+            inbound_date: f.get('inbound_date'),
+            dry_run: f.get('dry_run') === '1',
+          });
+          byId('ioResult').textContent = JSON.stringify(r, null, 2);
+          setMsg('导入执行完成');
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formExportDaily').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          const r = await api('/exports/daily-inbound', 'POST', { inbound_date: f.get('inbound_date') });
+          byId('ioResult').textContent = JSON.stringify(r, null, 2);
+          setMsg('日入库导出完成');
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formExportStatement').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          const r = await api(`/exports/statement/${Number(f.get('statement_id'))}`, 'POST', { format: f.get('format') });
+          byId('ioResult').textContent = JSON.stringify(r, null, 2);
+          setMsg('结算单导出完成');
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('btnExportInventory').onclick = async () => {
+        try {
+          const r = await api('/exports/inventory', 'POST', {});
+          byId('ioResult').textContent = JSON.stringify(r, null, 2);
+          setMsg('库存导出完成');
+        } catch (err) { setMsg(err.message, false); }
+      };
+      byId('btnExportLedger').onclick = async () => {
+        try {
+          const r = await api('/exports/ledger', 'POST', {});
+          byId('ioResult').textContent = JSON.stringify(r, null, 2);
+          setMsg('总账导出完成');
+        } catch (err) { setMsg(err.message, false); }
+      };
+      byId('btnBackup').onclick = async () => {
+        try {
+          const r = await api('/backup', 'POST', {});
+          byId('ioResult').textContent = JSON.stringify(r, null, 2);
+          setMsg('数据库备份完成');
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formChangePwd').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          await api('/change-password', 'POST', { new_password: f.get('new_password') });
+          e.target.reset();
+          setMsg('密码修改成功');
+        } catch (err) { setMsg(err.message, false); }
+      };
+    }
+
+    setupTabs();
+    setupForms();
+    renderCustomers();
+    renderInbound();
+    renderContainers();
+    renderLedger();
+    renderStatements();
+  </script>
 </body>
 </html>

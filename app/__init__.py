@@ -19,7 +19,7 @@ from .services.containers import (
     revoke_container,
 )
 from .services.customers import create_customer, list_customers, resolve_customer_id, upsert_alias
-from .services.finance import add_payment, generate_statement, ledger, post_statement
+from .services.finance import add_payment, generate_statement, ledger, list_statements, post_statement
 from .services.importer import import_inbound_excel, parse_inbound_excel
 from .services.inbound import create_inbound_item, delete_inbound_item, list_inbound, update_inbound_item
 from .services.pricing import upsert_price_rule
@@ -296,6 +296,13 @@ def create_app() -> Flask:
             post_statement(conn, statement_id)
         return {'message': 'posted'}
 
+    @app.route('/settlements', methods=['GET'])
+    @login_required
+    def settlements_list_api():
+        with db_session() as conn:
+            rows = list_statements(conn)
+        return jsonify(rows)
+
     @app.route('/ledger', methods=['GET'])
     @login_required
     def ledger_api():
@@ -384,6 +391,7 @@ def create_app() -> Flask:
             inbound = list_inbound(conn, only_in_stock=True)
             containers = list_containers(conn)
             ledger_rows = ledger(conn)
+            statements = list_statements(conn, limit=30)
         return render_template(
             'dashboard.html',
             user=session,
@@ -391,6 +399,7 @@ def create_app() -> Flask:
             inbound=inbound[:50],
             containers=containers[:30],
             ledger_rows=ledger_rows,
+            statements=statements,
         )
 
     return app
