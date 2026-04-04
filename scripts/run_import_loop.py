@@ -125,6 +125,7 @@ def write_report(report_path: Path, results: list[LoopResult], inbound_date: str
         )
 
     lines += ["", "## 正式导入文件", *(f"- `{r.path}`" for r in results if r.committed)]
+    report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -135,7 +136,7 @@ def main() -> None:
     p.add_argument("--limit", type=int, default=120)
     p.add_argument("--commit-files", type=int, default=10)
     p.add_argument("--reset-db", action="store_true")
-    p.add_argument("--report", type=Path, default=ROOT / "agent" / "import_loop_report.md")
+    p.add_argument("--report", type=Path, default=ROOT / "agent" / "reports" / "import_loop_report.md")
     args = p.parse_args()
 
     if args.reset_db:

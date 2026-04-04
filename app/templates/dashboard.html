@@ -49,6 +49,17 @@
       border: 1px solid #c8d4e3; border-radius: 8px; padding: 7px 8px; min-width: 120px;
       font-size: 14px; background: #fff;
     }
+    input.plannerPick { width: 20px; height: 20px; cursor: pointer; }
+    .usage-kpi {
+      margin-top: 10px;
+      font-size: 24px;
+      font-weight: 700;
+      color: #0b4a79;
+      background: #edf6ff;
+      border: 1px solid #c8def4;
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { border-bottom: 1px solid #edf2f8; padding: 7px; text-align: left; }
     th { background: #f8fbff; }
@@ -151,6 +162,8 @@
           <h3>手动修改在库商品</h3>
           <form id="formInboundEdit" class="inline">
             <label>货物ID<input name="item_id" required></label>
+            <label>客户ID<input name="customer_id" placeholder="可空"></label>
+            <label>客户名<input name="customer_name" placeholder="可空，自动解析"></label>
             <label>入库日期<input type="date" name="inbound_date"></label>
             <label>SHOP NO<input name="shop_no"></label>
             <label>位置<input name="position_or_tel"></label>
@@ -251,13 +264,54 @@
       </section>
 
       <section class="panel" id="panel-container">
+        <div class="card">
+          <h3>拼柜工作台</h3>
+          <form id="formPlannerFilters" class="inline">
+            <label>当前柜次
+              <select id="plannerContainerId" name="container_id"></select>
+            </label>
+            <label>排序
+              <select id="plannerSortBy" name="sort_by">
+                <option value="customer">按客户名</option>
+                <option value="date">按入库日期</option>
+              </select>
+            </label>
+            <label>关键字<input id="plannerKeyword" name="keyword" placeholder="客户/货号/品名"></label>
+            <label><input id="plannerHideAllocated" name="hide_allocated" type="checkbox" checked>隐藏已分配(ALLOCATED)</label>
+            <button class="btn" id="btnPlannerRefresh" type="submit">刷新货物池</button>
+          </form>
+          <div id="plannerUsage" class="usage-kpi">当前占用：0 / 68 CBM</div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+            <button class="btn primary" id="btnPlannerAddSelected" type="button">将勾选货物加入柜次</button>
+            <button class="btn primary" id="btnPlannerConfirm" type="button">完成组柜（出柜）</button>
+            <button class="btn" id="btnPlannerRevoke" type="button">撤回该柜次</button>
+          </div>
+          <div class="grid-2" style="margin-top:8px;">
+            <div>
+              <h4 style="margin:0 0 8px;">未出柜货物池（可勾选）</h4>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <div id="plannerAvailablePageInfo" class="small"></div>
+                <div style="display:flex; gap:8px;">
+                  <button class="btn" id="btnPlannerAvailPrev" type="button">上一页</button>
+                  <button class="btn" id="btnPlannerAvailNext" type="button">下一页</button>
+                </div>
+              </div>
+              <table id="tablePlannerAvailable"></table>
+            </div>
+            <div>
+              <h4 style="margin:0 0 8px;">当前柜内货物（可改占用体积）</h4>
+              <table id="tablePlannerSelected"></table>
+            </div>
+          </div>
+        </div>
+
         <div class="grid-2">
           <div class="card">
             <h3>新建柜次</h3>
             <form id="formCreateContainer" class="inline">
               <label>柜号<input name="container_no" required></label>
               <label>容量(CBM)<input name="capacity_cbm" type="number" step="0.001" value="68"></label>
-              <label>默认单价<input name="default_price_per_m3" type="number" step="0.01"></label>
+              <label>默认运费(元/68CBM)<input name="default_freight" type="number" step="0.01" value="6100"></label>
               <button class="btn primary" type="submit">创建柜次</button>
             </form>
           </div>
@@ -275,22 +329,6 @@
               <button class="btn" type="submit">移除货物</button>
             </form>
           </div>
-        </div>
-        <div class="card">
-          <h3>柜次状态与确认</h3>
-          <form id="formContainerUsage" class="inline">
-            <label>柜次ID<input name="container_id" required></label>
-            <button class="btn" type="submit">查询占用</button>
-          </form>
-          <pre id="usageResult" style="margin-top:8px;"></pre>
-          <form id="formContainerConfirm" class="inline" style="margin-top:8px;">
-            <label>柜次ID<input name="container_id" required></label>
-            <button class="btn primary" type="submit">确认出柜</button>
-          </form>
-          <form id="formContainerRevoke" class="inline" style="margin-top:8px;">
-            <label>柜次ID<input name="container_id" required></label>
-            <button class="btn" type="submit">撤回柜次</button>
-          </form>
         </div>
         <div class="card">
           <button class="btn" id="btnRefreshContainers" type="button">刷新柜次列表</button>
@@ -448,6 +486,14 @@
       ledgerPage: 1,
       ledgerPageSize: 50,
       importBatches: [],
+      plannerAvailable: [],
+      plannerSelected: [],
+      plannerContainerId: '',
+      plannerSortBy: 'customer',
+      plannerKeyword: '',
+      plannerHideAllocated: true,
+      plannerAvailablePage: 1,
+      plannerAvailablePageSize: 30,
     };
 
     function setMsg(text, ok = true) {
@@ -562,6 +608,102 @@
       renderTable(document.getElementById('tableContainersMini'), ['柜号', '状态', '已用/容量'], state.containers.slice(0, 10).map(c =>
         `<tr><td>${c.container_no || ''}</td><td>${c.status || ''}</td><td>${c.used_cbm ?? 0}/${c.capacity_cbm ?? 0}</td></tr>`
       ));
+      renderPlannerContainerOptions();
+    }
+
+    function renderPlannerContainerOptions() {
+      const el = byId('plannerContainerId');
+      if (!el) return;
+      const options = ['<option value="">请选择柜次</option>'].concat(
+        state.containers.map(c => `<option value="${c.id}">${c.id} - ${c.container_no || ''} (${c.status || ''})</option>`)
+      );
+      el.innerHTML = options.join('');
+      if (state.plannerContainerId) {
+        el.value = String(state.plannerContainerId);
+      }
+    }
+
+    function renderPlannerAvailable() {
+      let rows = state.plannerAvailable.slice();
+      const kw = (state.plannerKeyword || '').trim().toUpperCase();
+      if (kw) {
+        rows = rows.filter(r => `${r.customer_name || ''} ${r.item_no || ''} ${r.item_name_cn || ''}`.toUpperCase().includes(kw));
+      }
+      rows = rows.filter(r => String(r.status || '') !== 'SHIPPED');
+      if (state.plannerHideAllocated) {
+        rows = rows.filter(r => String(r.status || '') !== 'ALLOCATED');
+      }
+      if (state.plannerSortBy === 'date') {
+        rows.sort((a, b) => String(a.inbound_date || '').localeCompare(String(b.inbound_date || '')) || String(a.customer_name || '').localeCompare(String(b.customer_name || '')));
+      } else {
+        rows.sort((a, b) => String(a.customer_name || '').localeCompare(String(b.customer_name || '')) || String(a.inbound_date || '').localeCompare(String(b.inbound_date || '')));
+      }
+      const pageSize = Number(state.plannerAvailablePageSize || 30);
+      const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+      if (state.plannerAvailablePage > totalPages) state.plannerAvailablePage = totalPages;
+      if (state.plannerAvailablePage < 1) state.plannerAvailablePage = 1;
+      const start = (state.plannerAvailablePage - 1) * pageSize;
+      const pageRows = rows.slice(start, start + pageSize);
+      byId('plannerAvailablePageInfo').textContent = `共 ${rows.length} 条，当前第 ${state.plannerAvailablePage}/${totalPages} 页`;
+      const trs = pageRows.map(r => {
+        const canPick = String(r.status || '') === 'IN_STOCK';
+        const pickCell = canPick
+          ? `<input type="checkbox" class="plannerPick" value="${r.id}">`
+          : `<span class="small">${r.status || ''}${r.container_id ? ` (柜${r.container_id})` : ''}</span>`;
+        return `<tr>
+          <td>${pickCell}</td>
+          <td>${r.id}</td>
+          <td>${r.inbound_date || ''}</td>
+          <td>${r.customer_name || ''}</td>
+          <td>${r.shop_no || ''}</td>
+          <td>${r.item_no || ''}</td>
+          <td>${r.item_name_cn || ''}</td>
+          <td>${r.cbm_calculated ?? 0}</td>
+          <td>${r.status || ''}</td>
+        </tr>`;
+      });
+      renderTable(byId('tablePlannerAvailable'), ['选择', '货物ID', '入库日期', '客户', 'SHOP NO', 'ITEM NO', '品名', 'CBM', '状态'], trs);
+    }
+
+    function renderPlannerSelected() {
+      const trs = state.plannerSelected.map(r => `
+        <tr>
+          <td>${r.inbound_item_id}</td>
+          <td>${r.inbound_date || ''}</td>
+          <td>${r.customer_name || ''}</td>
+          <td>${r.item_no || ''}</td>
+          <td>${r.item_name_cn || ''}</td>
+          <td>${r.cbm_calculated ?? 0}</td>
+          <td><input class="plannerCbmInput" data-item-id="${r.inbound_item_id}" type="number" step="0.001" value="${r.cbm_at_load ?? 0}"></td>
+          <td>
+            <button class="btn btnPlannerCbmSave" data-item-id="${r.inbound_item_id}" type="button">更新体积</button>
+            <button class="btn btnPlannerRemove" data-item-id="${r.inbound_item_id}" type="button">移除</button>
+          </td>
+        </tr>
+      `);
+      renderTable(byId('tablePlannerSelected'), ['货物ID', '入库日期', '客户', 'ITEM NO', '品名', '原CBM', '装柜CBM', '操作'], trs);
+    }
+
+    async function refreshPlannerUsage() {
+      if (!state.plannerContainerId) {
+        byId('plannerUsage').textContent = '当前占用：0 / 68 CBM';
+        return;
+      }
+      const usage = await api(`/containers/${encodeURIComponent(state.plannerContainerId)}/usage`);
+      byId('plannerUsage').textContent = `当前占用：${usage.used_cbm} / ${usage.capacity_cbm} CBM（剩余 ${usage.remain_cbm}）`;
+    }
+
+    async function refreshPlannerData() {
+      const allInbound = await api('/inbound-items?only_in_stock=0');
+      state.plannerAvailable = allInbound;
+      if (state.plannerContainerId) {
+        state.plannerSelected = await api(`/containers/${encodeURIComponent(state.plannerContainerId)}/items`);
+      } else {
+        state.plannerSelected = [];
+      }
+      renderPlannerAvailable();
+      renderPlannerSelected();
+      await refreshPlannerUsage();
     }
 
     function renderLedger(rows = null) {
@@ -777,6 +919,138 @@
       byId('btnInboundNext').onclick = () => { state.inboundPage += 1; renderInbound(); };
       byId('btnLedgerPrev').onclick = () => { state.ledgerPage -= 1; renderLedger(); };
       byId('btnLedgerNext').onclick = () => { state.ledgerPage += 1; renderLedger(); };
+      byId('formPlannerFilters').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        state.plannerContainerId = String(f.get('container_id') || '').trim();
+        state.plannerSortBy = String(f.get('sort_by') || 'customer').trim();
+        state.plannerKeyword = String(f.get('keyword') || '').trim();
+        state.plannerHideAllocated = f.get('hide_allocated') === 'on';
+        state.plannerAvailablePage = 1;
+        try {
+          await refreshPlannerData();
+          setMsg('拼柜货物池已刷新');
+        } catch (err) { setMsg(err.message, false); }
+      };
+      byId('plannerContainerId').onchange = async (e) => {
+        state.plannerContainerId = String(e.target.value || '').trim();
+        try { await refreshPlannerData(); } catch (err) { setMsg(err.message, false); }
+      };
+      byId('plannerSortBy').onchange = (e) => {
+        state.plannerSortBy = String(e.target.value || 'customer').trim();
+        state.plannerAvailablePage = 1;
+        renderPlannerAvailable();
+      };
+      byId('plannerKeyword').oninput = (e) => {
+        state.plannerKeyword = String(e.target.value || '').trim();
+        state.plannerAvailablePage = 1;
+        renderPlannerAvailable();
+      };
+      byId('plannerHideAllocated').onchange = (e) => {
+        state.plannerHideAllocated = !!e.target.checked;
+        state.plannerAvailablePage = 1;
+        renderPlannerAvailable();
+      };
+      byId('btnPlannerAvailPrev').onclick = () => {
+        state.plannerAvailablePage -= 1;
+        renderPlannerAvailable();
+      };
+      byId('btnPlannerAvailNext').onclick = () => {
+        state.plannerAvailablePage += 1;
+        renderPlannerAvailable();
+      };
+      byId('btnPlannerAddSelected').onclick = async () => {
+        if (!state.plannerContainerId) {
+          setMsg('请先选择柜次', false);
+          return;
+        }
+        const checks = Array.from(document.querySelectorAll('#tablePlannerAvailable .plannerPick:checked'));
+        const ids = checks.map(x => Number(x.value)).filter(x => x > 0);
+        if (ids.length === 0) {
+          setMsg('请先勾选要加入柜次的货物', false);
+          return;
+        }
+        let ok = 0;
+        const errs = [];
+        for (const id of ids) {
+          try {
+            await api(`/containers/${state.plannerContainerId}/items`, 'POST', { inbound_item_id: id });
+            ok += 1;
+          } catch (e) {
+            errs.push(`ID ${id}: ${e.message}`);
+          }
+        }
+        await refreshContainers();
+        await refreshPlannerData();
+        await refreshSummary();
+        setMsg(errs.length ? `加入完成 ${ok}/${ids.length}，失败 ${errs.length} 条` : `已加入 ${ok} 条货物`);
+      };
+      byId('btnPlannerConfirm').onclick = async () => {
+        if (!state.plannerContainerId) {
+          setMsg('请先选择柜次', false);
+          return;
+        }
+        if (!confirm(`确认完成组柜并出柜？柜次ID=${state.plannerContainerId}`)) return;
+        try {
+          await api(`/containers/${state.plannerContainerId}/confirm`, 'POST', {});
+          await refreshContainers();
+          await refreshPlannerData();
+          await refreshSummary();
+          await runInboundQuery(false);
+          setMsg('组柜完成，货物状态已改为已出柜');
+        } catch (err) { setMsg(err.message, false); }
+      };
+      byId('btnPlannerRevoke').onclick = async () => {
+        if (!state.plannerContainerId) {
+          setMsg('请先选择柜次', false);
+          return;
+        }
+        if (!confirm(`确认撤回柜次？柜次ID=${state.plannerContainerId}`)) return;
+        try {
+          await api(`/containers/${state.plannerContainerId}/revoke`, 'POST', {});
+          await refreshContainers();
+          await refreshPlannerData();
+          await refreshSummary();
+          await runInboundQuery(false);
+          setMsg('柜次已撤回，货物状态已恢复在库');
+        } catch (err) { setMsg(err.message, false); }
+      };
+      byId('tablePlannerSelected').onclick = async (e) => {
+        const btnRemove = e.target.closest('.btnPlannerRemove');
+        if (btnRemove) {
+          const itemId = Number(btnRemove.dataset.itemId || 0);
+          if (!itemId || !state.plannerContainerId) return;
+          if (!confirm(`确认将货物 ${itemId} 从当前柜次移除吗？`)) return;
+          try {
+            await api(`/containers/${state.plannerContainerId}/items/${itemId}`, 'DELETE');
+            await refreshContainers();
+            await refreshPlannerData();
+            await refreshSummary();
+            setMsg(`已从柜次移除货物 ${itemId}`);
+            showDoneModal(`已从柜次移除货物 ${itemId}。`);
+          } catch (err) { setMsg(err.message, false); }
+          return;
+        }
+        const btnSave = e.target.closest('.btnPlannerCbmSave');
+        if (btnSave) {
+          const itemId = Number(btnSave.dataset.itemId || 0);
+          if (!itemId || !state.plannerContainerId) return;
+          const input = byId('tablePlannerSelected').querySelector(`.plannerCbmInput[data-item-id="${itemId}"]`);
+          const cbm = input ? Number(input.value) : NaN;
+          if (!Number.isFinite(cbm) || cbm <= 0) {
+            setMsg('装柜体积必须大于0', false);
+            return;
+          }
+          if (!confirm(`确认将货物 ${itemId} 的装柜体积修改为 ${cbm} 吗？`)) return;
+          try {
+            await api(`/containers/${state.plannerContainerId}/items/${itemId}`, 'PUT', { cbm_at_load: cbm });
+            await refreshContainers();
+            await refreshPlannerData();
+            setMsg(`货物 ${itemId} 装柜体积已更新为 ${cbm}`);
+            showDoneModal(`货物 ${itemId} 装柜体积已更新为 ${cbm}。`);
+          } catch (err) { setMsg(err.message, false); }
+        }
+      };
       byId('tableInbound').onclick = async (e) => {
         const editBtn = e.target.closest('.btnEditInbound');
         if (editBtn) {
@@ -785,6 +1059,8 @@
           if (!row) return;
           const form = byId('formInboundEdit');
           form.item_id.value = row.id ?? '';
+          form.customer_id.value = row.customer_id ?? '';
+          form.customer_name.value = row.customer_name || '';
           form.inbound_date.value = row.inbound_date || '';
           form.shop_no.value = row.shop_no || '';
           form.position_or_tel.value = row.position_or_tel || '';
@@ -825,6 +1101,8 @@
           return;
         }
         const payload = {};
+        const customerIdRaw = String(f.get('customer_id') || '').trim();
+        const customerNameRaw = String(f.get('customer_name') || '').trim();
         const put = (key) => {
           const v = String(f.get(key) || '').trim();
           if (v !== '') payload[key] = v;
@@ -846,11 +1124,21 @@
         putNum('deposit_hint');
         putNum('cbm_override');
         put('status');
-        if (Object.keys(payload).length === 0) {
-          setMsg('请至少填写一个要修改的字段', false);
-          return;
-        }
         try {
+          if (customerIdRaw) {
+            payload.customer_id = Number(customerIdRaw);
+          } else if (customerNameRaw) {
+            const resolved = await api(`/customer-resolve?name=${encodeURIComponent(customerNameRaw)}`);
+            if (!resolved || !resolved.matched) {
+              setMsg('未找到该客户名，请先创建客户或别名', false);
+              return;
+            }
+            payload.customer_id = Number(resolved.customer_id);
+          }
+          if (Object.keys(payload).length === 0) {
+            setMsg('请至少填写一个要修改的字段', false);
+            return;
+          }
           await api(`/inbound-items/${itemId}`, 'PUT', payload);
           await runInboundQuery(false);
           await refreshSummary();
@@ -863,12 +1151,18 @@
         e.preventDefault();
         const f = new FormData(e.target);
         try {
-          await api('/containers', 'POST', {
+          const cap = Number(f.get('capacity_cbm') || 68);
+          const freight = Number(f.get('default_freight') || 6100);
+          const unit = cap > 0 ? freight / cap : 6100 / 68;
+          const r = await api('/containers', 'POST', {
             container_no: f.get('container_no'),
-            capacity_cbm: Number(f.get('capacity_cbm') || 68),
-            default_price_per_m3: f.get('default_price_per_m3') ? Number(f.get('default_price_per_m3')) : null,
+            capacity_cbm: cap,
+            default_price_per_m3: unit,
           });
           await refreshContainers();
+          state.plannerContainerId = String(r.id || '');
+          renderPlannerContainerOptions();
+          await refreshPlannerData();
           await refreshSummary();
           setMsg('柜次已创建');
           e.target.reset();
@@ -897,38 +1191,6 @@
           await refreshContainers();
           await refreshSummary();
           setMsg('货物已移除');
-        } catch (err) { setMsg(err.message, false); }
-      };
-
-      byId('formContainerUsage').onsubmit = async (e) => {
-        e.preventDefault();
-        const f = new FormData(e.target);
-        try {
-          const usage = await api(`/containers/${Number(f.get('container_id'))}/usage`);
-          byId('usageResult').textContent = JSON.stringify(usage, null, 2);
-          setMsg('占用信息已更新');
-        } catch (err) { setMsg(err.message, false); }
-      };
-
-      byId('formContainerConfirm').onsubmit = async (e) => {
-        e.preventDefault();
-        const f = new FormData(e.target);
-        try {
-          await api(`/containers/${Number(f.get('container_id'))}/confirm`, 'POST', {});
-          await refreshContainers();
-          await refreshSummary();
-          setMsg('柜次已确认出柜');
-        } catch (err) { setMsg(err.message, false); }
-      };
-
-      byId('formContainerRevoke').onsubmit = async (e) => {
-        e.preventDefault();
-        const f = new FormData(e.target);
-        try {
-          await api(`/containers/${Number(f.get('container_id'))}/revoke`, 'POST', {});
-          await refreshContainers();
-          await refreshSummary();
-          setMsg('柜次已撤回');
         } catch (err) { setMsg(err.message, false); }
       };
 
@@ -1163,6 +1425,7 @@
     renderStatements();
     refreshSummary().catch(() => {});
     refreshImportBatches('', '', 20).catch(() => {});
+    refreshPlannerData().catch(() => {});
   </script>
 </body>
 </html>

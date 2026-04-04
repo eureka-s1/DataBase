@@ -1,6 +1,6 @@
 本项目旨在实现一个关于国际仓储和拼柜的数据库管理软件。
 
-使用者初始需求记录在 customer_requirements.md 文件中，开发者需求记录在 developer_requirements.md 文件中。
+使用者初始需求记录在 /agent/requirements/customer_requirements.md 文件中，开发者需求记录在 /agent/requirements/dev_requirements.md 文件中。
 
 部分数据可参考 /2025data 文件夹中的数据文件。其中包含了2025年及之前货运清单的原始数据以及经过人工统计的客户数据，可作为参考。
 

@@ -66,6 +66,11 @@ def run() -> None:
 
     r = c.post(f'/containers/{container_id}/items', json={'inbound_item_id': inbound_item_id})
     assert r.status_code == 200, r.data
+    r = c.get(f'/containers/{container_id}/items')
+    assert r.status_code == 200, r.data
+    assert len(r.get_json()) == 1
+    r = c.put(f'/containers/{container_id}/items/{inbound_item_id}', json={'cbm_at_load': 0.123})
+    assert r.status_code == 200, r.data
 
     # confirm & revoke
     r = c.post(f'/containers/{container_id}/confirm')

@@ -15,9 +15,11 @@ from .services.containers import (
     confirm_container,
     container_usage,
     create_container,
+    list_container_items,
     list_containers,
     remove_item_from_container,
     revoke_container,
+    update_item_cbm_at_load,
 )
 from .services.customers import create_customer, find_customer_id_by_name, list_customers, merge_customers, resolve_customer_id, upsert_alias
 from .services.finance import add_payment, generate_statement, ledger, list_statements, post_statement
@@ -281,6 +283,13 @@ def create_app() -> Flask:
             usage = container_usage(conn, container_id)
         return {'message': 'ok', 'usage': usage}
 
+    @app.route('/containers/<int:container_id>/items', methods=['GET'])
+    @login_required
+    def list_container_items_api(container_id: int):
+        with db_session() as conn:
+            rows = list_container_items(conn, container_id)
+        return jsonify(rows)
+
     @app.route('/containers/<int:container_id>/items/<int:item_id>', methods=['DELETE'])
     @login_required
     def remove_container_item_api(container_id: int, item_id: int):
@@ -288,6 +297,16 @@ def create_app() -> Flask:
             removed = remove_item_from_container(conn, container_id, item_id)
             usage = container_usage(conn, container_id)
         return {'removed': removed, 'usage': usage}
+
+    @app.route('/containers/<int:container_id>/items/<int:item_id>', methods=['PUT'])
+    @login_required
+    def update_container_item_api(container_id: int, item_id: int):
+        payload = request.get_json(force=True)
+        cbm_at_load = float(payload['cbm_at_load'])
+        with db_session() as conn:
+            update_item_cbm_at_load(conn, container_id, item_id, cbm_at_load)
+            usage = container_usage(conn, container_id)
+        return {'message': 'ok', 'usage': usage}
 
     @app.route('/containers/<int:container_id>/confirm', methods=['POST'])
     @login_required

@@ -7,6 +7,10 @@ from .common import now_ts, to_float
 
 def create_container(conn: Connection, payload: dict, user_id: int) -> int:
     ts = now_ts()
+    capacity_cbm = to_float(payload.get('capacity_cbm'), 68.0)
+    default_price_per_m3 = payload.get('default_price_per_m3')
+    if default_price_per_m3 is None:
+        default_price_per_m3 = round(6100.0 / 68.0, 6)
     cur = conn.execute(
         '''
         INSERT INTO containers(
@@ -17,10 +21,10 @@ def create_container(conn: Connection, payload: dict, user_id: int) -> int:
         (
             payload['container_no'],
             payload.get('container_type', '40HQ'),
-            to_float(payload.get('capacity_cbm'), 68.0),
+            capacity_cbm,
             payload.get('eta_date'),
             payload.get('price_mode', 'BY_CUSTOMER_RULE'),
-            payload.get('default_price_per_m3'),
+            to_float(default_price_per_m3),
             payload.get('remark'),
             user_id,
             ts,
@@ -105,6 +109,61 @@ def remove_item_from_container(conn: Connection, container_id: int, inbound_item
             (now_ts(), inbound_item_id),
         )
     return cur.rowcount
+
+
+def list_container_items(conn: Connection, container_id: int) -> list[dict]:
+    rows = conn.execute(
+        '''
+        SELECT ci.container_id, ci.inbound_item_id, ci.cbm_at_load, ci.created_at,
+               i.inbound_date, i.status, i.shop_no, i.item_no, i.item_name_cn, i.material,
+               i.carton_count, i.qty, i.unit_price, i.total_price, i.deposit_hint,
+               i.cbm_calculated, i.cbm_override,
+               c.name AS customer_name
+        FROM container_items ci
+        JOIN inbound_items i ON i.id = ci.inbound_item_id
+        JOIN customers c ON c.id = i.customer_id
+        WHERE ci.container_id=?
+        ORDER BY i.inbound_date, c.name, i.id
+        ''',
+        (container_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_item_cbm_at_load(conn: Connection, container_id: int, inbound_item_id: int, cbm_at_load: float) -> None:
+    c = conn.execute('SELECT id, status, capacity_cbm FROM containers WHERE id=?', (container_id,)).fetchone()
+    if not c:
+        raise ValueError('container not found')
+    if c['status'] != 'DRAFT':
+        raise ValueError('container is not editable')
+
+    row = conn.execute(
+        'SELECT cbm_at_load FROM container_items WHERE container_id=? AND inbound_item_id=?',
+        (container_id, inbound_item_id),
+    ).fetchone()
+    if not row:
+        raise ValueError('inbound item is not in this container')
+
+    new_cbm = to_float(cbm_at_load)
+    if new_cbm <= 0:
+        raise ValueError('cbm_at_load must be > 0')
+
+    used_other = conn.execute(
+        '''
+        SELECT COALESCE(SUM(cbm_at_load), 0) AS x
+        FROM container_items
+        WHERE container_id=? AND inbound_item_id!=?
+        ''',
+        (container_id, inbound_item_id),
+    ).fetchone()
+    total_after = float(used_other['x']) + new_cbm
+    if total_after > float(c['capacity_cbm']) + 1e-9:
+        raise ValueError('container capacity exceeded')
+
+    conn.execute(
+        'UPDATE container_items SET cbm_at_load=? WHERE container_id=? AND inbound_item_id=?',
+        (new_cbm, container_id, inbound_item_id),
+    )
 
 
 def confirm_container(conn: Connection, container_id: int) -> None:
