@@ -1,0 +1,117 @@
+# 导入测试 Loop 报告
+
+- inbound_date: `2026-04-04`
+- 样本文件总数: `612`
+- 解析成功: `612`
+- 解析失败: `0`
+- dry-run 总行数: `29801`
+- dry-run 成功行: `29801`
+- dry-run 失败行: `0`
+- 正式导入文件数: `100`
+- 客户预置: created=`445`, existed=`0`
+
+## 解析失败（前30）
+
+## dry-run 失败文件（前30）
+
+## 正式导入文件
+- `2025data/0BASIAMAKA/0BASIAMAKA 2025.xlsx`
+- `2025data/3 BROTHERS/3 BROTHERS 2025.xlsx`
+- `2025data/ABIKE/ABIKE 2025收货清单 4.xls`
+- `2025data/ABOVE/ABOVE 2024 收货清单.xlsx`
+- `2025data/ABOVE/ABOVE 2025 收货清单 .xlsx`
+- `2025data/ABUBAKRI/ABUBAKRI 2025 .xlsx`
+- `2025data/ABUCHIUGO/ABUCHIUGO 2025收货清单 .xlsx`
+- `2025data/ABVENTURE/AB VENTURE 2025收货清单 .xls`
+- `2025data/AC KING NO VIC/AC KING 2025 收货清单 .xls`
+- `2025data/AC KING NO VIC/NZE KING 2025 收货清单.xlsx`
+- `2025data/ADAJ/ADAJ 2025 收货清单- .xls`
+- `2025data/ADAUDO/ADAUDO 2024收货清单.xls`
+- `2025data/ADAUDO/ADAUDO 2025收货清单 8.xls`
+- `2025data/ADAZION/ADAZION 2025 收货清单 .xlsx`
+- `2025data/ADAZION/BUKFAD/BUKFAD 2022 收货清单.xlsx`
+- `2025data/ADAZION/EMYDAN 客来弗/EMYDAN 2024收货清单-副本20241027101351.xls`
+- `2025data/ADAZION/EMYDAN 客来弗/EMYDAN 2024收货清单.xls`
+- `2025data/ADAZOL/ADAZOL 2024 收货清单.xlsx`
+- `2025data/ADAZOL/ADAZOL 2025 收货清单 .xlsx`
+- `2025data/ADEBAYO BARAT/ADEBAYO BARAT 2025收货清单 .xlsx`
+- `2025data/ADEBISI/ADEBISI 2025 收货清单.xlsx`
+- `2025data/ADEFAVOUR/ADEFAVOR 2025 .xls`
+- `2025data/ADELEYE 01UDARE/ADELEYE 01UDARE 2025 .xlsx`
+- `2025data/ADESINA/ADESINA 2025收货清单 .xls`
+- `2025data/ADY/ADY 2024 收货清单.xlsx`
+- `2025data/ADY/ADY 2025 收货清单 .xlsx`
+- `2025data/AFAM/AFAM 2025 收货清单.xlsx`
+- `2025data/AFOGAN/AFOGAN 2025.xlsx`
+- `2025data/AFUNWA/AFUNWA 2025.xlsx`
+- `2025data/AGBOOLA/AGBOOLA 2024 收货清单.xls`
+- `2025data/AGBOOLA/AGBOOLA 2025 收货清单V.xls`
+- `2025data/AHV/AHV 2025 收货清单.xls`
+- `2025data/AINIZ/AINIZ 2025 收货清单 .xls`
+- `2025data/AIRGOLD/AIRGOLD 2025收货清单 .xlsx`
+- `2025data/AJ-JD/ABIOLA 2025 收货清单.xlsx`
+- `2025data/AJ-JD/AJ-JD 2025 收货清单 .xlsx`
+- `2025data/AJOKE/AJOKE 2025.xlsx`
+- `2025data/AKA/AKA 2025.xlsx`
+- `2025data/ALAKE ADE/ALAKE ADE 2025 收货清单 .xlsx`
+- `2025data/ALALBI/ALABI 2025 收货清单 .xlsx`
+- `2025data/ALBARIKA/ALBARIKA ZAINBA 朋友 2025 收货清单 .xlsx`
+- `2025data/ALEX ABUJA/ALEX ABUJA 2025 收货清单.xlsx`
+- `2025data/ALEXA-NAOMI/ALEXA-NAOMI 2024 收货清单.xlsx`
+- `2025data/ALEXA-NAOMI/ALEXA-NAOMI 2025 收货清单 .xlsx`
+- `2025data/ALIYAN/ALIYAN 2025 .xlsx`
+- `2025data/AMIRA/AMIRA 2025 收货清单 .xls`
+- `2025data/AMSTROUCT/AMSTROUCT 2025 .xlsx`
+- `2025data/ANGELO/ANGELO 2025 收货清单.xlsx`
+- `2025data/ANIK/ANIK 2025收货清单 .xls`
+- `2025data/ANIK/gentle 2025 收货清单.xlsx`
+- `2025data/ANTHOY (ABRL)/ANTHOY (ABRL) 2025 收货清单呢.xlsx`
+- `2025data/ANYIBEST/ANYBEST 2025.xlsx`
+- `2025data/ARCFORM/ARCFORM 2025 收货清单 .xls`
+- `2025data/AROLEK/AROLEK 2025 .xlsx`
+- `2025data/ASABE/ASABE 2024收货清单.xls`
+- `2025data/ASABE/ASABE 2025收货清单 .xls`
+- `2025data/ASHABI/ASHABI 2025收货清单- .xls`
+- `2025data/ATHEN/ATHEN 2025 收货清单 .xls`
+- `2025data/AUSTIN/AUSTIN 2025 收货清单 .xls`
+- `2025data/AYO/AYO 2025收货清单.xlsx`
+- `2025data/AYOIYIOLA/AYOIYIOLA 2025 收货清单.xlsx`
+- `2025data/AYOMIDE/AYOMIDE 2025.xlsx`
+- `2025data/AZEEZAT/AZEEZAT 2025 收货清单.xlsx`
+- `2025data/Abiluxe lnteriors/Abiluxe lnteriors 2025 .xlsx`
+- `2025data/B COLLE/B COLLE 2025 .xlsx`
+- `2025data/BABA OGBON/BABA OGBON 2024 收货清单.xlsx`
+- `2025data/BABA OGBON/BABA OGBON 2025 收货清单 1.xlsx`
+- `2025data/BAKERS STAR SAM/BAKERS STAR SAM 2025 收货清单.xlsx`
+- `2025data/BARTHO/BARTHO 2025收货清单.xlsx`
+- `2025data/BASIL/BASIL 2025 收货清单 .xls`
+- `2025data/BASIRAT/BASIRAT 2025 收货清单 .xlsx`
+- `2025data/BD/AR-HREEM 2025.xlsx`
+- `2025data/BD/BD 2024收货清单.xls`
+- `2025data/BD/BD 2025收货清单 .xls`
+- `2025data/BD/KAMOR 2025 收货清单.xlsx`
+- `2025data/BEKEE/BEKEE 2025 收货清单.xls`
+- `2025data/BENGOCHI/BENGOCHI 2025 收货清单 .xlsx`
+- `2025data/BERACHAT/BERACHAT 2025.xlsx`
+- `2025data/BEST/BEST 2025 收货清单 .xls`
+- `2025data/BEST CHOICE CHIDI/BEST CHOICE 2024 收货清单.xlsx`
+- `2025data/BEST CHOICE CHIDI/BEST CHOICE 2025 收货清单 .xlsx`
+- `2025data/BFS/BFS 2025 收货清单 .xls`
+- `2025data/BIG WAVE/BIGWAVE 2025 .xlsx`
+- `2025data/BIMBO/BIMBO 2024收货清单.xls`
+- `2025data/BIMBO/BIMBO 2025收货清单 .xls`
+- `2025data/BLESSED CHIMAC-LAOGS/BLESSED CHIMAC-LAOGS 2025 收货清单 .xlsx`
+- `2025data/BOLAB/AZEEZ 2025收货清单 .xls`
+- `2025data/BOLACHEF/BOLACHEF 2025收货清单 .xls`
+- `2025data/BOLACHEF/IDEAL 2025收货清单 .xlsx`
+- `2025data/BOLACHEF/SAUTHMAN 2025收货清单 .xlsx`
+- `2025data/BOLACHEF/WINNER 2025 收货清单.xlsx`
+- `2025data/BONAMIN/BONAMIN 2024 收货清单.xlsx`
+- `2025data/BONAMIN/BONAMIN 2025收货清单 .xlsx`
+- `2025data/BOWLESS/BOWLESS 2025 .xlsx`
+- `2025data/BS/BS 2024 收货清单-副本20241027101337.xlsx`
+- `2025data/BS/BS 2024 收货清单.xlsx`
+- `2025data/BS/BS 2025 收货清单 .xlsx`
+- `2025data/BUKFAD/BUKFAD 2025 收货清单.xlsx`
+- `2025data/BUKOLA OPEYEMISTORE/BUKOLA 2025 收货清单 .xlsx`
+- `2025data/BUMBLE/BUMBLE 2025.xlsx`

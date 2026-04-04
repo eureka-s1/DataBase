@@ -1,0 +1,103 @@
+# 导入异常人工确认清单
+
+- 统计时间: 2026-04-04
+- 当前导入记录总数: `2890`
+- CBM=0 记录数(抽样80): `80`
+- CBM>=10 记录数(抽样80): `9`
+- 品名空值记录数(抽样80): `0`
+
+## A. CBM=0 抽样
+- id=2717, inbound_no=IN-20260404-000649-00043, customer=ANIK, item=运费, cbm=0
+- id=2594, inbound_no=IN-20260404-000646-00043, customer=AMIRA, item=垃圾桶, cbm=0
+- id=2580, inbound_no=IN-20260404-000646-00029, customer=AMIRA, item=收纳篮, cbm=0
+- id=2360, inbound_no=IN-20260404-000644-00489, customer=ALEXA-NAOMI, item=A37书立, cbm=0
+- id=2359, inbound_no=IN-20260404-000644-00488, customer=ALEXA-NAOMI, item=178127
+问号挂钩, cbm=0
+- id=2358, inbound_no=IN-20260404-000644-00487, customer=ALEXA-NAOMI, item=男孩女孩书立, cbm=0
+- id=2357, inbound_no=IN-20260404-000644-00486, customer=ALEXA-NAOMI, item=农行书立, cbm=0
+- id=2356, inbound_no=IN-20260404-000644-00485, customer=ALEXA-NAOMI, item=天鹅书立, cbm=0
+- id=2355, inbound_no=IN-20260404-000644-00484, customer=ALEXA-NAOMI, item=松鼠书立, cbm=0
+- id=2349, inbound_no=IN-20260404-000644-00478, customer=ALEXA-NAOMI, item=A4483小树圆头, cbm=0
+- id=2347, inbound_no=IN-20260404-000644-00476, customer=ALEXA-NAOMI, item=A134三横二竖铁木组合, cbm=0
+- id=2346, inbound_no=IN-20260404-000644-00475, customer=ALEXA-NAOMI, item=6014钢琴挂钩, cbm=0
+- id=2340, inbound_no=IN-20260404-000644-00469, customer=ALEXA-NAOMI, item=A4791本色6钩直角衣帽架, cbm=0
+- id=2339, inbound_no=IN-20260404-000644-00468, customer=ALEXA-NAOMI, item=A4790仿古色6钩带3个蘑菇头拼接衣帽架, cbm=0
+- id=2338, inbound_no=IN-20260404-000644-00467, customer=ALEXA-NAOMI, item=A4772本色8钩带3个蘑菇头衣帽架, cbm=0
+- id=2336, inbound_no=IN-20260404-000644-00465, customer=ALEXA-NAOMI, item=A557-3勾衣帽架, cbm=0
+- id=2290, inbound_no=IN-20260404-000644-00419, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2288, inbound_no=IN-20260404-000644-00417, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2286, inbound_no=IN-20260404-000644-00415, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2284, inbound_no=IN-20260404-000644-00413, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2282, inbound_no=IN-20260404-000644-00411, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2280, inbound_no=IN-20260404-000644-00409, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2278, inbound_no=IN-20260404-000644-00407, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2276, inbound_no=IN-20260404-000644-00405, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2275, inbound_no=IN-20260404-000644-00404, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2273, inbound_no=IN-20260404-000644-00402, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2272, inbound_no=IN-20260404-000644-00401, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2270, inbound_no=IN-20260404-000644-00399, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2269, inbound_no=IN-20260404-000644-00398, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2267, inbound_no=IN-20260404-000644-00396, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2266, inbound_no=IN-20260404-000644-00395, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2260, inbound_no=IN-20260404-000644-00389, customer=ALEXA-NAOMI, item=木架, cbm=0
+- id=2257, inbound_no=IN-20260404-000644-00386, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2256, inbound_no=IN-20260404-000644-00385, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2248, inbound_no=IN-20260404-000644-00377, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2239, inbound_no=IN-20260404-000644-00368, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2236, inbound_no=IN-20260404-000644-00365, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2234, inbound_no=IN-20260404-000644-00363, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2233, inbound_no=IN-20260404-000644-00362, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2232, inbound_no=IN-20260404-000644-00361, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2230, inbound_no=IN-20260404-000644-00359, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2229, inbound_no=IN-20260404-000644-00358, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2227, inbound_no=IN-20260404-000644-00356, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2225, inbound_no=IN-20260404-000644-00354, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2224, inbound_no=IN-20260404-000644-00353, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2222, inbound_no=IN-20260404-000644-00351, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2221, inbound_no=IN-20260404-000644-00350, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2219, inbound_no=IN-20260404-000644-00348, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2218, inbound_no=IN-20260404-000644-00347, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2096, inbound_no=IN-20260404-000644-00225, customer=ALEXA-NAOMI, item=织带, cbm=0
+- id=2095, inbound_no=IN-20260404-000644-00224, customer=ALEXA-NAOMI, item=织带, cbm=0
+- id=2094, inbound_no=IN-20260404-000644-00223, customer=ALEXA-NAOMI, item=织带, cbm=0
+- id=2093, inbound_no=IN-20260404-000644-00222, customer=ALEXA-NAOMI, item=织带, cbm=0
+- id=2092, inbound_no=IN-20260404-000644-00221, customer=ALEXA-NAOMI, item=织带, cbm=0
+- id=2091, inbound_no=IN-20260404-000644-00220, customer=ALEXA-NAOMI, item=织带, cbm=0
+- id=2089, inbound_no=IN-20260404-000644-00218, customer=ALEXA-NAOMI, item=苔藓球, cbm=0
+- id=2086, inbound_no=IN-20260404-000644-00215, customer=ALEXA-NAOMI, item=苔藓球, cbm=0
+- id=2084, inbound_no=IN-20260404-000644-00213, customer=ALEXA-NAOMI, item=灰黄石, cbm=0
+- id=2082, inbound_no=IN-20260404-000644-00211, customer=ALEXA-NAOMI, item=苔藓石, cbm=0
+- id=2081, inbound_no=IN-20260404-000644-00210, customer=ALEXA-NAOMI, item=苔藓石, cbm=0
+- id=2073, inbound_no=IN-20260404-000644-00202, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2072, inbound_no=IN-20260404-000644-00201, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2071, inbound_no=IN-20260404-000644-00200, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2069, inbound_no=IN-20260404-000644-00198, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2068, inbound_no=IN-20260404-000644-00197, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2066, inbound_no=IN-20260404-000644-00195, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2065, inbound_no=IN-20260404-000644-00194, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2064, inbound_no=IN-20260404-000644-00193, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2062, inbound_no=IN-20260404-000644-00191, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2061, inbound_no=IN-20260404-000644-00190, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2060, inbound_no=IN-20260404-000644-00189, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2059, inbound_no=IN-20260404-000644-00188, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2057, inbound_no=IN-20260404-000644-00186, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2056, inbound_no=IN-20260404-000644-00185, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2055, inbound_no=IN-20260404-000644-00184, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2054, inbound_no=IN-20260404-000644-00183, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2053, inbound_no=IN-20260404-000644-00182, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2052, inbound_no=IN-20260404-000644-00181, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2051, inbound_no=IN-20260404-000644-00180, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+- id=2048, inbound_no=IN-20260404-000644-00177, customer=ALEXA-NAOMI, item=花瓶, cbm=0
+
+## B. CBM>=10 抽样
+- id=426, inbound_no=IN-20260404-000629-00002, customer=AFUNWA, item=ANIK, cbm=113.235294117647
+- id=68, inbound_no=IN-20260404-000606-00001, customer=ABUBAKRI, item=数据线, cbm=23
+- id=2731, inbound_no=IN-20260404-000649-00057, customer=ANIK, item=塑料日用品, cbm=19
+- id=2702, inbound_no=IN-20260404-000649-00028, customer=ANIK, item=陶瓷杯, cbm=15.6
+- id=629, inbound_no=IN-20260404-000631-00101, customer=AGBOOLA, item=管子, cbm=13.845
+- id=527, inbound_no=IN-20260404-000630-00101, customer=AGBOOLA, item=管子, cbm=13.845
+- id=787, inbound_no=IN-20260404-000636-00001, customer=AJ-JD, item=拉花, cbm=12
+- id=627, inbound_no=IN-20260404-000631-00099, customer=AGBOOLA, item=686B, cbm=10.27092
+- id=525, inbound_no=IN-20260404-000630-00099, customer=AGBOOLA, item=686B, cbm=10.27092
+
+## C. 品名空值抽样
