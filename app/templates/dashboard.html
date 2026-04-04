@@ -125,6 +125,7 @@
           <h3>在库查询</h3>
           <form id="formInboundQuery" class="inline">
             <label>入库日期<input type="date" name="inbound_date"></label>
+            <label>批次ID<input name="batch_id" placeholder="例如 12"></label>
             <label>只看在库<select name="only_in_stock"><option value="1">是</option><option value="0">否</option></select></label>
             <label>关键字<input name="keyword" placeholder="单号/客户/品名"></label>
             <label>每页条数
@@ -146,6 +147,34 @@
           </div>
         </div>
         <div class="card"><table id="tableInbound"></table></div>
+        <div class="card">
+          <h3>手动修改在库商品</h3>
+          <form id="formInboundEdit" class="inline">
+            <label>货物ID<input name="item_id" required></label>
+            <label>入库日期<input type="date" name="inbound_date"></label>
+            <label>SHOP NO<input name="shop_no"></label>
+            <label>位置<input name="position_or_tel"></label>
+            <label>ITEM NO<input name="item_no"></label>
+            <label>品名<input name="item_name_cn"></label>
+            <label>材质<input name="material"></label>
+            <label>CTNS<input name="carton_count" type="number" step="1"></label>
+            <label>QTY<input name="qty" type="number" step="1"></label>
+            <label>PRICE<input name="unit_price" type="number" step="0.01"></label>
+            <label>T.PRICE<input name="total_price" type="number" step="0.01"></label>
+            <label>定金<input name="deposit_hint" type="number" step="0.01"></label>
+            <label>CBM覆盖<input name="cbm_override" type="number" step="0.001"></label>
+            <label>状态
+              <select name="status">
+                <option value="">不修改</option>
+                <option value="IN_STOCK">IN_STOCK</option>
+                <option value="ALLOCATED">ALLOCATED</option>
+                <option value="SHIPPED">SHIPPED</option>
+              </select>
+            </label>
+            <button class="btn primary" type="submit">保存修改</button>
+          </form>
+          <div class="small">可在列表中点击“编辑”自动带入该行字段，再点“保存修改”。</div>
+        </div>
 
         <div class="card">
           <h3>总账查询</h3>
@@ -345,6 +374,21 @@
               <label>撤销批次ID<input name="batch_id" required></label>
               <button class="btn" type="submit">撤销该批导入</button>
             </form>
+            <div style="margin-top:8px; border-top:1px dashed var(--line); padding-top:8px;">
+              <form id="formImportBatchQuery" class="inline">
+                <label>批次ID（可空）<input name="batch_id" placeholder="例如 12"></label>
+                <label>入库日期（可空）<input type="date" name="inbound_date"></label>
+                <label>最近条数
+                  <select name="limit">
+                    <option value="20">20</option>
+                    <option value="50" selected>50</option>
+                    <option value="100">100</option>
+                  </select>
+                </label>
+                <button class="btn" type="submit">查询批次</button>
+              </form>
+              <table id="tableImportBatches" style="margin-top:8px;"></table>
+            </div>
           </div>
           <div class="card">
             <h3>导出与备份</h3>
@@ -395,12 +439,15 @@
       containers: {{ containers|tojson }},
       ledger: {{ ledger_rows|tojson }},
       statements: {{ statements|tojson }},
+      summary: { customer_count: 0, inbound_count: 0, container_count: 0, statement_count: 0 },
       inboundFiltered: [],
       inboundPage: 1,
       inboundPageSize: 50,
+      inboundQuery: { inbound_date: '', batch_id: '', only_in_stock: '1', keyword: '' },
       ledgerFiltered: [],
       ledgerPage: 1,
       ledgerPageSize: 50,
+      importBatches: [],
     };
 
     function setMsg(text, ok = true) {
@@ -462,7 +509,6 @@
         `<tr><td>${c.id}</td><td>${c.customer_code || ''}</td><td>${c.name || ''}</td><td>${(c.aliases || []).join(' / ')}</td><td>${c.default_price_per_m3 ?? ''}</td></tr>`
       );
       renderTable(document.getElementById('tableCustomers'), ['ID', '编码', '客户名', '别名', '默认单价'], rows);
-      document.getElementById('statCustomers').textContent = String(state.customers.length);
     }
 
     function renderInbound(rows = null) {
@@ -478,6 +524,8 @@
       const pageRows = allRows.slice(start, start + pageSize);
       const trs = pageRows.map(i =>
         `<tr>
+          <td>${i.id ?? ''}</td>
+          <td>${i.import_batch_id ?? ''}</td>
           <td>${i.inbound_date || ''}</td>
           <td>${i.customer_name || ''}</td>
           <td>${i.shop_no || ''}</td>
@@ -492,15 +540,18 @@
           <td>${i.deposit_hint ?? ''}</td>
           <td>${i.cbm_calculated ?? ''}</td>
           <td>${i.status || ''}</td>
+          <td>
+            <button class="btn btnEditInbound" data-item-id="${i.id}">编辑</button>
+            <button class="btn btnDelInbound" data-item-id="${i.id}">撤销</button>
+          </td>
         </tr>`
       );
       renderTable(
         document.getElementById('tableInbound'),
-        ['入库日期', 'CUSTOMER NAME', 'SHOP NO', '位置', 'ITEM NO', '品名', '材质', 'CTNS', 'QTY', 'PRICE', 'T.PRICE', '定金', 'CBM', '状态'],
+        ['ID', '批次ID', '入库日期', 'CUSTOMER NAME', 'SHOP NO', '位置', 'ITEM NO', '品名', '材质', 'CTNS', 'QTY', 'PRICE', 'T.PRICE', '定金', 'CBM', '状态', '操作'],
         trs
       );
       byId('inboundPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.inboundPage}/${totalPages} 页`;
-      document.getElementById('statInbound').textContent = String(allRows.length);
     }
 
     function renderContainers() {
@@ -511,7 +562,6 @@
       renderTable(document.getElementById('tableContainersMini'), ['柜号', '状态', '已用/容量'], state.containers.slice(0, 10).map(c =>
         `<tr><td>${c.container_no || ''}</td><td>${c.status || ''}</td><td>${c.used_cbm ?? 0}/${c.capacity_cbm ?? 0}</td></tr>`
       ));
-      document.getElementById('statContainers').textContent = String(state.containers.length);
     }
 
     function renderLedger(rows = null) {
@@ -540,12 +590,58 @@
         `<tr><td>${s.id}</td><td>${s.statement_no || ''}</td><td>${s.container_no || ''}</td><td>${s.statement_date || ''}</td><td>${s.status || ''}</td><td>${s.created_at || ''}</td></tr>`
       );
       renderTable(document.getElementById('tableStatements'), ['ID', '结算单号', '柜号', '结算日期', '状态', '创建时间'], rows);
-      document.getElementById('statStatements').textContent = String(state.statements.length);
     }
 
     async function refreshCustomers() { state.customers = await api('/customers'); renderCustomers(); }
     async function refreshContainers() { state.containers = await api('/containers'); renderContainers(); }
     async function refreshStatements() { state.statements = await api('/settlements'); renderStatements(); }
+    async function refreshSummary() {
+      state.summary = await api('/dashboard/summary');
+      byId('statCustomers').textContent = String(state.summary.customer_count || 0);
+      byId('statInbound').textContent = String(state.summary.inbound_count || 0);
+      byId('statContainers').textContent = String(state.summary.container_count || 0);
+      byId('statStatements').textContent = String(state.summary.statement_count || 0);
+    }
+    async function refreshImportBatches(batchId = '', inboundDate = '', limit = 50) {
+      let path = `/import/inbound/batches?limit=${encodeURIComponent(String(limit || 50))}`;
+      if (batchId) path += `&batch_id=${encodeURIComponent(String(batchId))}`;
+      if (inboundDate) path += `&inbound_date=${encodeURIComponent(String(inboundDate))}`;
+      state.importBatches = await api(path);
+      const rows = state.importBatches.map(b =>
+        `<tr>
+          <td>${b.batch_id}</td>
+          <td>${b.batch_no || ''}</td>
+          <td>${b.inbound_date || ''}</td>
+          <td>${b.success_rows ?? 0}/${b.total_rows ?? 0}</td>
+          <td>${b.in_stock_items ?? 0}</td>
+          <td>${b.created_at || ''}</td>
+          <td><button class="btn btnRollbackBatch" data-batch-id="${b.batch_id}">撤销此批</button></td>
+        </tr>`
+      );
+      renderTable(byId('tableImportBatches'), ['批次ID', '批次号', '入库日期', '成功/总行', '在库条数', '导入时间', '操作'], rows);
+    }
+
+    function buildInboundQueryPath() {
+      let path = '/inbound-items?';
+      if (state.inboundQuery.inbound_date) path += `inbound_date=${encodeURIComponent(state.inboundQuery.inbound_date)}&`;
+      if (state.inboundQuery.batch_id) path += `batch_id=${encodeURIComponent(state.inboundQuery.batch_id)}&`;
+      if (state.inboundQuery.only_in_stock) path += `only_in_stock=${encodeURIComponent(state.inboundQuery.only_in_stock)}`;
+      return path;
+    }
+
+    async function runInboundQuery(resetPage = true) {
+      if (resetPage) state.inboundPage = 1;
+      let rows = await api(buildInboundQueryPath());
+      const kw = (state.inboundQuery.keyword || '').trim().toUpperCase();
+      if (kw) {
+        rows = rows.filter(r => {
+          const s = `${r.inbound_no || ''} ${r.customer_name || ''} ${r.item_name_cn || ''}`.toUpperCase();
+          return s.includes(kw);
+        });
+      }
+      state.inbound = rows;
+      renderInbound(rows);
+    }
 
     function setupTabs() {
       const btns = document.querySelectorAll('.tab-btn');
@@ -584,6 +680,7 @@
             default_price_per_m3: Number(f.get('default_price_per_m3') || 89.71),
           });
           await refreshCustomers();
+          await refreshSummary();
           setMsg('客户已创建');
           e.target.reset();
         } catch (err) { setMsg(err.message, false); }
@@ -608,6 +705,7 @@
           const rows = await api('/ledger');
           state.ledger = rows;
           renderLedger(rows);
+          await refreshSummary();
           setMsg('别名已保存');
           e.target.reset();
         } catch (err) { setMsg(err.message, false); }
@@ -640,6 +738,7 @@
           const rows = await api('/ledger');
           state.ledger = rows;
           renderLedger(rows);
+          await refreshSummary();
           setMsg(`客户合并完成：${r.source_name} -> ${r.target_name}`);
           byId('ioResult').textContent = JSON.stringify(r, null, 2);
         } catch (err) { setMsg(err.message, false); }
@@ -648,23 +747,13 @@
       byId('formInboundQuery').onsubmit = async (e) => {
         e.preventDefault();
         const f = new FormData(e.target);
-        const d = f.get('inbound_date');
-        const only = f.get('only_in_stock');
-        const kw = String(f.get('keyword') || '').trim().toUpperCase();
+        state.inboundQuery.inbound_date = String(f.get('inbound_date') || '').trim();
+        state.inboundQuery.batch_id = String(f.get('batch_id') || '').trim();
+        state.inboundQuery.only_in_stock = String(f.get('only_in_stock') || '1').trim();
+        state.inboundQuery.keyword = String(f.get('keyword') || '').trim();
         state.inboundPageSize = Number(f.get('page_size') || 50);
-        state.inboundPage = 1;
-        let path = '/inbound-items?';
-        if (d) path += 'inbound_date=' + encodeURIComponent(d) + '&';
-        if (only) path += 'only_in_stock=' + encodeURIComponent(only);
         try {
-          let rows = await api(path);
-          if (kw) {
-            rows = rows.filter(r => {
-              const s = `${r.inbound_no || ''} ${r.customer_name || ''} ${r.item_name_cn || ''}`.toUpperCase();
-              return s.includes(kw);
-            });
-          }
-          renderInbound(rows);
+          await runInboundQuery(true);
           setMsg('查询完成');
         } catch (err) { setMsg(err.message, false); }
       };
@@ -688,6 +777,87 @@
       byId('btnInboundNext').onclick = () => { state.inboundPage += 1; renderInbound(); };
       byId('btnLedgerPrev').onclick = () => { state.ledgerPage -= 1; renderLedger(); };
       byId('btnLedgerNext').onclick = () => { state.ledgerPage += 1; renderLedger(); };
+      byId('tableInbound').onclick = async (e) => {
+        const editBtn = e.target.closest('.btnEditInbound');
+        if (editBtn) {
+          const itemId = Number(editBtn.dataset.itemId || 0);
+          const row = state.inboundFiltered.find(x => Number(x.id) === itemId);
+          if (!row) return;
+          const form = byId('formInboundEdit');
+          form.item_id.value = row.id ?? '';
+          form.inbound_date.value = row.inbound_date || '';
+          form.shop_no.value = row.shop_no || '';
+          form.position_or_tel.value = row.position_or_tel || '';
+          form.item_no.value = row.item_no || '';
+          form.item_name_cn.value = row.item_name_cn || '';
+          form.material.value = row.material || '';
+          form.carton_count.value = row.carton_count ?? '';
+          form.qty.value = row.qty ?? '';
+          form.unit_price.value = row.unit_price ?? '';
+          form.total_price.value = row.total_price ?? '';
+          form.deposit_hint.value = row.deposit_hint ?? '';
+          form.cbm_override.value = row.cbm_override ?? '';
+          form.status.value = row.status || '';
+          setMsg(`已带入货物 ${itemId}，可修改后保存`);
+          return;
+        }
+
+        const delBtn = e.target.closest('.btnDelInbound');
+        if (!delBtn) return;
+        const itemId = Number(delBtn.dataset.itemId || 0);
+        if (!itemId) return;
+        if (!confirm(`确认撤销货物 ID=${itemId} 吗？`)) return;
+        try {
+          await api(`/inbound-items/${itemId}`, 'DELETE');
+          await runInboundQuery(false);
+          await refreshSummary();
+          await refreshImportBatches('', '', 20);
+          setMsg(`货物 ${itemId} 已撤销`);
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('formInboundEdit').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        const itemId = Number(f.get('item_id') || 0);
+        if (!itemId) {
+          setMsg('请填写货物ID', false);
+          return;
+        }
+        const payload = {};
+        const put = (key) => {
+          const v = String(f.get(key) || '').trim();
+          if (v !== '') payload[key] = v;
+        };
+        const putNum = (key) => {
+          const v = String(f.get(key) || '').trim();
+          if (v !== '') payload[key] = Number(v);
+        };
+        put('inbound_date');
+        put('shop_no');
+        put('position_or_tel');
+        put('item_no');
+        put('item_name_cn');
+        put('material');
+        putNum('carton_count');
+        putNum('qty');
+        putNum('unit_price');
+        putNum('total_price');
+        putNum('deposit_hint');
+        putNum('cbm_override');
+        put('status');
+        if (Object.keys(payload).length === 0) {
+          setMsg('请至少填写一个要修改的字段', false);
+          return;
+        }
+        try {
+          await api(`/inbound-items/${itemId}`, 'PUT', payload);
+          await runInboundQuery(false);
+          await refreshSummary();
+          await refreshImportBatches('', '', 20);
+          setMsg(`货物 ${itemId} 已更新`);
+        } catch (err) { setMsg(err.message, false); }
+      };
 
       byId('formCreateContainer').onsubmit = async (e) => {
         e.preventDefault();
@@ -699,6 +869,7 @@
             default_price_per_m3: f.get('default_price_per_m3') ? Number(f.get('default_price_per_m3')) : null,
           });
           await refreshContainers();
+          await refreshSummary();
           setMsg('柜次已创建');
           e.target.reset();
         } catch (err) { setMsg(err.message, false); }
@@ -713,6 +884,7 @@
         try {
           await api(`/containers/${containerId}/items`, 'POST', payload);
           await refreshContainers();
+          await refreshSummary();
           setMsg('货物已加入柜次');
         } catch (err) { setMsg(err.message, false); }
       };
@@ -723,6 +895,7 @@
         try {
           await api(`/containers/${Number(f.get('container_id'))}/items/${Number(f.get('inbound_item_id'))}`, 'DELETE');
           await refreshContainers();
+          await refreshSummary();
           setMsg('货物已移除');
         } catch (err) { setMsg(err.message, false); }
       };
@@ -743,6 +916,7 @@
         try {
           await api(`/containers/${Number(f.get('container_id'))}/confirm`, 'POST', {});
           await refreshContainers();
+          await refreshSummary();
           setMsg('柜次已确认出柜');
         } catch (err) { setMsg(err.message, false); }
       };
@@ -753,6 +927,7 @@
         try {
           await api(`/containers/${Number(f.get('container_id'))}/revoke`, 'POST', {});
           await refreshContainers();
+          await refreshSummary();
           setMsg('柜次已撤回');
         } catch (err) { setMsg(err.message, false); }
       };
@@ -783,6 +958,7 @@
             statement_no: f.get('statement_no') || undefined,
           });
           await refreshStatements();
+          await refreshSummary();
           setMsg('结算单已生成，ID=' + r.statement_id);
         } catch (err) { setMsg(err.message, false); }
       };
@@ -793,6 +969,7 @@
         try {
           await api(`/settlements/${Number(f.get('statement_id'))}/post`, 'POST', {});
           await refreshStatements();
+          await refreshSummary();
           setMsg('结算单已过账');
         } catch (err) { setMsg(err.message, false); }
       };
@@ -856,8 +1033,11 @@
             setMsg(`导入演练完成：日期 ${r.inbound_date_used}，总计 ${r.total_rows}，通过 ${r.success_rows}，失败 ${r.failed_rows}，待新建客户 ${r.auto_created_customer_count || 0}`);
           } else {
             await refreshCustomers();
-            const rows = await api(`/inbound-items?inbound_date=${encodeURIComponent(r.inbound_date_used)}`);
-            renderInbound(rows);
+            state.inboundQuery.inbound_date = String(r.inbound_date_used || '').trim();
+            state.inboundQuery.only_in_stock = '1';
+            await runInboundQuery(true);
+            await refreshSummary();
+            await refreshImportBatches('', r.inbound_date_used, 50);
             setMsg(`导入完成：日期 ${r.inbound_date_used}，成功入库 ${r.success_rows}，失败 ${r.failed_rows}，自动新建客户 ${r.auto_created_customer_count || 0}`);
             showDoneModal(`批次ID: ${r.batch_id}；入库日期: ${r.inbound_date_used}；成功入库: ${r.success_rows} 条；失败: ${r.failed_rows} 条；新建客户: ${r.auto_created_customer_count || 0}。`);
           }
@@ -885,7 +1065,37 @@
           const batchId = Number(f.get('batch_id'));
           const r = await api(`/import/inbound/rollback/${batchId}`, 'POST', {});
           byId('ioResult').textContent = JSON.stringify(r, null, 2);
+          await runInboundQuery(false);
+          await refreshSummary();
+          await refreshImportBatches(batchId, '', 50);
           setMsg('导入批次已撤销');
+        } catch (err) { setMsg(err.message, false); }
+      };
+      byId('formImportBatchQuery').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          await refreshImportBatches(
+            String(f.get('batch_id') || '').trim(),
+            String(f.get('inbound_date') || '').trim(),
+            Number(f.get('limit') || 50),
+          );
+          setMsg('批次查询完成');
+        } catch (err) { setMsg(err.message, false); }
+      };
+      byId('tableImportBatches').onclick = async (e) => {
+        const btn = e.target.closest('.btnRollbackBatch');
+        if (!btn) return;
+        const batchId = Number(btn.dataset.batchId || 0);
+        if (!batchId) return;
+        if (!confirm(`确认撤销批次 ${batchId} 吗？`)) return;
+        try {
+          const r = await api(`/import/inbound/rollback/${batchId}`, 'POST', {});
+          byId('ioResult').textContent = JSON.stringify(r, null, 2);
+          await runInboundQuery(false);
+          await refreshSummary();
+          await refreshImportBatches('', '', 50);
+          setMsg(`批次 ${batchId} 已撤销`);
         } catch (err) { setMsg(err.message, false); }
       };
 
@@ -951,6 +1161,8 @@
     renderContainers();
     renderLedger(state.ledger);
     renderStatements();
+    refreshSummary().catch(() => {});
+    refreshImportBatches('', '', 20).catch(() => {});
   </script>
 </body>
 </html>

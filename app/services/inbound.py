@@ -86,11 +86,26 @@ def update_inbound_item(conn: Connection, item_id: int, payload: dict) -> None:
 
 
 def delete_inbound_item(conn: Connection, item_id: int) -> int:
+    row = conn.execute('SELECT id, status FROM inbound_items WHERE id=?', (item_id,)).fetchone()
+    if not row:
+        return 0
+    if row['status'] != 'IN_STOCK':
+        return 0
+
+    # Keep import trace rows but detach FK before deleting inbound item.
+    conn.execute('UPDATE inbound_import_rows SET inbound_item_id=NULL WHERE inbound_item_id=?', (item_id,))
+    # Defensive cleanup when historical inconsistent rows still reference this item.
+    conn.execute('DELETE FROM container_items WHERE inbound_item_id=?', (item_id,))
     cur = conn.execute('DELETE FROM inbound_items WHERE id=? AND status=?', (item_id, 'IN_STOCK'))
-    return cur.rowcount
+    return int(cur.rowcount)
 
 
-def list_inbound(conn: Connection, inbound_date: str | None = None, only_in_stock: bool = False) -> list[dict]:
+def list_inbound(
+    conn: Connection,
+    inbound_date: str | None = None,
+    only_in_stock: bool = False,
+    import_batch_id: int | None = None,
+) -> list[dict]:
     where = []
     args: list = []
     if inbound_date:
@@ -98,6 +113,9 @@ def list_inbound(conn: Connection, inbound_date: str | None = None, only_in_stoc
         args.append(inbound_date)
     if only_in_stock:
         where.append("i.status='IN_STOCK'")
+    if import_batch_id is not None:
+        where.append('i.import_batch_id=?')
+        args.append(import_batch_id)
     where_sql = ('WHERE ' + ' AND '.join(where)) if where else ''
 
     rows = conn.execute(

@@ -509,3 +509,40 @@ def rollback_inbound_import_batch(conn: Connection, batch_id: int) -> dict:
         'deleted_import_rows': int(deleted_rows),
         'message': 'rolled back',
     }
+
+
+def list_inbound_import_batches(
+    conn: Connection,
+    limit: int = 100,
+    batch_id: int | None = None,
+    inbound_date: str | None = None,
+) -> list[dict]:
+    where = ["b.import_type='inbound'"]
+    args: list = []
+    if batch_id is not None:
+        where.append('b.id=?')
+        args.append(batch_id)
+    if inbound_date:
+        where.append('EXISTS (SELECT 1 FROM inbound_items i2 WHERE i2.import_batch_id=b.id AND i2.inbound_date=?)')
+        args.append(inbound_date)
+    where_sql = ' AND '.join(where)
+    args.append(int(limit))
+    rows = conn.execute(
+        f'''
+        SELECT b.id AS batch_id,
+               b.batch_no,
+               b.source_file,
+               b.total_rows,
+               b.success_rows,
+               b.failed_rows,
+               b.created_at,
+               COALESCE((SELECT MIN(i.inbound_date) FROM inbound_items i WHERE i.import_batch_id=b.id), '') AS inbound_date,
+               COALESCE((SELECT COUNT(*) FROM inbound_items i WHERE i.import_batch_id=b.id AND i.status='IN_STOCK'), 0) AS in_stock_items
+        FROM import_batches b
+        WHERE {where_sql}
+        ORDER BY b.id DESC
+        LIMIT ?
+        ''',
+        args,
+    ).fetchall()
+    return [dict(r) for r in rows]

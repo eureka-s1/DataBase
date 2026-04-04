@@ -21,7 +21,12 @@ from .services.containers import (
 )
 from .services.customers import create_customer, find_customer_id_by_name, list_customers, merge_customers, resolve_customer_id, upsert_alias
 from .services.finance import add_payment, generate_statement, ledger, list_statements, post_statement
-from .services.importer import import_inbound_excel, parse_inbound_excel, rollback_inbound_import_batch
+from .services.importer import (
+    import_inbound_excel,
+    list_inbound_import_batches,
+    parse_inbound_excel,
+    rollback_inbound_import_batch,
+)
 from .services.inbound import create_inbound_item, delete_inbound_item, list_inbound, update_inbound_item
 from .services.pricing import upsert_price_rule
 from .services.reports import (
@@ -210,8 +215,17 @@ def create_app() -> Flask:
     def inbound_list_api():
         inbound_date = request.args.get('inbound_date')
         only_in_stock = request.args.get('only_in_stock') == '1'
+        batch_id_raw = (request.args.get('batch_id') or '').strip()
+        import_batch_id = int(batch_id_raw) if batch_id_raw else None
         with db_session() as conn:
-            return jsonify(list_inbound(conn, inbound_date=inbound_date, only_in_stock=only_in_stock))
+            return jsonify(
+                list_inbound(
+                    conn,
+                    inbound_date=inbound_date,
+                    only_in_stock=only_in_stock,
+                    import_batch_id=import_batch_id,
+                )
+            )
 
     @app.route('/inbound-items', methods=['POST'])
     @login_required
@@ -431,6 +445,37 @@ def create_app() -> Flask:
         with db_session() as conn:
             result = rollback_inbound_import_batch(conn, batch_id)
         return result
+
+    @app.route('/import/inbound/batches', methods=['GET'])
+    @login_required
+    def import_batches_api():
+        batch_id_raw = (request.args.get('batch_id') or '').strip()
+        inbound_date = (request.args.get('inbound_date') or '').strip() or None
+        limit_raw = (request.args.get('limit') or '50').strip()
+        limit = max(1, min(500, int(limit_raw)))
+        with db_session() as conn:
+            rows = list_inbound_import_batches(
+                conn,
+                limit=limit,
+                batch_id=int(batch_id_raw) if batch_id_raw else None,
+                inbound_date=inbound_date,
+            )
+        return jsonify(rows)
+
+    @app.route('/dashboard/summary', methods=['GET'])
+    @login_required
+    def dashboard_summary_api():
+        with db_session() as conn:
+            customer_count = int(conn.execute('SELECT COUNT(*) AS c FROM customers WHERE is_active=1').fetchone()['c'])
+            inbound_count = int(conn.execute("SELECT COUNT(*) AS c FROM inbound_items WHERE status='IN_STOCK'").fetchone()['c'])
+            container_count = int(conn.execute('SELECT COUNT(*) AS c FROM containers').fetchone()['c'])
+            statement_count = int(conn.execute('SELECT COUNT(*) AS c FROM settlement_statements').fetchone()['c'])
+        return {
+            'customer_count': customer_count,
+            'inbound_count': inbound_count,
+            'container_count': container_count,
+            'statement_count': statement_count,
+        }
 
     @app.route('/ui/dashboard', methods=['GET'])
     @login_required
