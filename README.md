@@ -3,8 +3,8 @@
 
 ## 非技术用户一键启动（推荐）
 如果你不熟悉命令行，按下面做即可：
-1. 首次下载或后续更新：双击 `update_from_github.bat`（会自动下载/更新到最新版并启动）。
-2. 若你已经在本地有代码，也可直接双击 `start_windows.bat`。
+1. 只需要双击 `update_from_github.bat`（会自动下载/更新到最新版并启动）。
+2. 不需要区分下载、更新、启动，统一用这一个脚本。
 3. 等待黑色窗口自动安装并启动（首次会慢一些）。
 4. 浏览器打开 `http://127.0.0.1:5000/login`。
 5. 使用默认账号登录：`admin / admin123`。
@@ -12,19 +12,26 @@
 
 注意：
 - 使用期间不要关闭黑色窗口；关闭后系统会停止。
-- 下次使用时，建议双击 `update_from_github.bat`（自动更新后启动）。
+- 下次使用时，继续双击 `update_from_github.bat` 即可。
 
-## Windows 一键更新脚本
+## Windows 一键入口脚本
 - 脚本：`update_from_github.bat`
 - 功能：
-  - 首次运行自动下载 GitHub 项目内容
-  - 后续运行自动更新到最新 `main`
-  - 默认更新后自动启动系统
+  - 只发这一个脚本给用户，也能首次下载 GitHub 项目
+  - 后续再次双击即可从 GitHub ZIP 覆盖更新（不依赖 Git）
+  - 默认更新后自动完成环境准备并启动系统（不依赖 `start_windows.bat`）
+  - 更新时默认保留本地数据目录与常见本地文件（如 `.canyu_data`、`shipping.db`、`.env`）
 - 可选参数：
 ```bat
 update_from_github.bat --sync-only
+update_from_github.bat --start-only
 ```
-仅更新，不启动系统。
+- `--sync-only`：仅更新，不启动。
+- `--start-only`：仅启动，不更新。
+
+排查提示：
+- 如果双击后仍有异常，请查看同目录日志：`update_from_github.log`。
+- 常见原因：网络受限、公司电脑拦截 PowerShell 下载、GitHub 连接不稳定。
 
 ## 一键打包
 ### Windows（推荐）
@@ -69,7 +76,7 @@ python run.py
 
 ## 快速启动（Windows）
 ```bat
-start_windows.bat
+update_from_github.bat
 ```
 
 浏览器访问：
@@ -83,11 +90,12 @@ start_windows.bat
 - 建议将项目放在本地磁盘目录（如 `D:\DataBase`），不要放在只读目录。
 
 ### 2. 首次启动
-1. 双击 `start_windows.bat`，或在 CMD/PowerShell 中执行：
+1. 双击 `update_from_github.bat`，或在 CMD/PowerShell 中执行：
 ```bat
-start_windows.bat
+update_from_github.bat
 ```
 2. 脚本会自动完成：
+- 自动下载/更新代码
 - 创建虚拟环境 `.venv`
 - 安装依赖 `requirements.txt`
 - 初始化数据库
@@ -106,7 +114,7 @@ start_windows.bat
 
 ### 4. 关闭与下次启动
 - 在启动窗口按 `Ctrl + C` 停止服务。
-- 下次仍执行 `start_windows.bat` 即可。
+- 下次仍执行 `update_from_github.bat` 即可。
 
 ### 5. 常见问题
 - `py 不是内部或外部命令`：
