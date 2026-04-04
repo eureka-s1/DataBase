@@ -52,6 +52,8 @@ def is_candidate(path: Path, data_root: Path) -> bool:
         return False
     if path.name.startswith("~$") or path.name.endswith(".tmp"):
         return False
+    if "收货清单" not in path.name:
+        return False
     rel = path.relative_to(data_root)
     rel_text = str(rel).lower()
     if rel.parts and rel.parts[0] in EXCLUDE_TOP_DIRS:

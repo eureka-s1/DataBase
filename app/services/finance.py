@@ -142,15 +142,16 @@ def list_statements(conn: Connection, limit: int = 100) -> list[dict]:
 
 
 def ledger(conn: Connection, customer_id: int | None = None) -> list[dict]:
-    where = ''
+    where = 'WHERE c.is_active=1'
     args = []
     if customer_id:
-        where = 'WHERE c.id=?'
+        where = 'WHERE c.is_active=1 AND c.id=?'
         args.append(customer_id)
 
     rows = conn.execute(
         f'''
         SELECT c.id AS customer_id, c.name,
+               COALESCE((SELECT GROUP_CONCAT(ca.alias_name, '|') FROM customer_aliases ca WHERE ca.customer_id=c.id AND ca.is_active=1), '') AS aliases,
                COALESCE((SELECT SUM(amount) FROM payment_transactions p WHERE p.customer_id=c.id),0) AS total_deposit,
                COALESCE((SELECT SUM(freight_amount) FROM settlement_lines sl WHERE sl.customer_id=c.id),0) AS total_freight,
                COALESCE((SELECT SUM(amount_due) FROM settlement_lines sl2 WHERE sl2.customer_id=c.id),0) AS total_due,
@@ -164,6 +165,7 @@ def ledger(conn: Connection, customer_id: int | None = None) -> list[dict]:
     result = []
     for r in rows:
         d = dict(r)
+        d['aliases'] = d['aliases'].split('|') if d.get('aliases') else []
         d['net_balance'] = round(float(d['total_deposit']) - float(d['total_freight']), 2)
         result.append(d)
     return result

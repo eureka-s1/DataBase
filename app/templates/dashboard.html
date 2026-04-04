@@ -58,6 +58,12 @@
     .msg.err { display: block; background: #fff1f1; border: 1px solid #efc5c5; color: var(--err); }
     pre { margin: 0; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: #f8fbff; overflow: auto; }
     details { margin-top: 8px; }
+    .modal-mask { position: fixed; inset: 0; background: rgba(9, 24, 40, 0.45); display: none; align-items: center; justify-content: center; z-index: 999; }
+    .modal-mask.show { display: flex; }
+    .modal-card { width: min(520px, 92vw); background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+    .preview-box { margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #fbfdff; display: none; }
+    .preview-box.show { display: block; }
+    .preview-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
     @media (max-width: 920px) {
       .layout { grid-template-columns: 1fr; }
       .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -121,8 +127,23 @@
             <label>入库日期<input type="date" name="inbound_date"></label>
             <label>只看在库<select name="only_in_stock"><option value="1">是</option><option value="0">否</option></select></label>
             <label>关键字<input name="keyword" placeholder="单号/客户/品名"></label>
+            <label>每页条数
+              <select id="inboundPageSize" name="page_size">
+                <option value="20">20</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+                <option value="200">200</option>
+              </select>
+            </label>
             <button class="btn primary" type="submit">查询</button>
           </form>
+        </div>
+        <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
+          <div id="inboundPageInfo" class="small"></div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn" id="btnInboundPrev" type="button">上一页</button>
+            <button class="btn" id="btnInboundNext" type="button">下一页</button>
+          </div>
         </div>
         <div class="card"><table id="tableInbound"></table></div>
 
@@ -130,8 +151,22 @@
           <h3>总账查询</h3>
           <form id="formLedgerQuery" class="inline">
             <label>客户ID（可空）<input name="customer_id" placeholder="例如 1"></label>
+            <label>每页条数
+              <select id="ledgerPageSize" name="page_size">
+                <option value="20">20</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+              </select>
+            </label>
             <button class="btn primary" type="submit">查询</button>
           </form>
+        </div>
+        <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
+          <div id="ledgerPageInfo" class="small"></div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn" id="btnLedgerPrev" type="button">上一页</button>
+            <button class="btn" id="btnLedgerNext" type="button">下一页</button>
+          </div>
         </div>
         <div class="card"><table id="tableLedger"></table></div>
       </section>
@@ -152,9 +187,19 @@
             <details>
               <summary>别名维护（默认折叠）</summary>
               <form id="formAlias" class="inline" style="margin-top:8px;">
-                <label>客户ID<input name="customer_id" required></label>
+                <label>客户ID（可空）<input name="customer_id" placeholder="如 12"></label>
+                <label>客户名（可空）<input name="customer_name" placeholder="如 MARTIN"></label>
                 <label>别名<input name="alias_name" required></label>
                 <button class="btn primary" type="submit">保存别名</button>
+              </form>
+              <div class="small">客户ID或客户名二选一即可。</div>
+            </details>
+            <details>
+              <summary>客户合并（将来源客户并入目标客户）</summary>
+              <form id="formMergeCustomer" class="inline" style="margin-top:8px;">
+                <label>来源客户ID<input name="source_customer_id" required></label>
+                <label>目标客户ID<input name="target_customer_id" required></label>
+                <button class="btn" type="submit">执行合并</button>
               </form>
             </details>
           </div>
@@ -267,19 +312,38 @@
       <section class="panel" id="panel-io">
         <div class="grid-2">
           <div class="card">
-            <h3>导入预览/执行</h3>
+            <h3>手动导入收货清单</h3>
+            <form id="formImportUpload" class="inline">
+              <label>选择文件
+                <input id="importFileInput" name="file" type="file" accept=".xlsx,.xls" required>
+              </label>
+              <button class="btn" type="submit">上传收货清单</button>
+            </form>
+            <div class="small" id="importUploadState" style="margin-top:6px;">仅支持文件名包含“收货清单”的 Excel</div>
             <form id="formImportPreview" class="inline">
-              <label>Excel 文件路径<input name="file_path" required placeholder="如 C:\data\inbound.xlsx"></label>
+              <label>已上传文件路径<input id="importFilePath" name="file_path" required placeholder="先上传文件后自动填充"></label>
               <button class="btn" type="submit">预览字段映射</button>
             </form>
-            <pre id="importPreview" style="margin-top:8px;"></pre>
+            <div id="importPreviewBox" class="preview-box">
+              <div class="preview-head">
+                <b>预览结果</b>
+                <button id="btnClosePreview" class="btn" type="button">关闭预览</button>
+              </div>
+              <div id="importPreviewSummary" class="small"></div>
+              <table id="importPreviewTable" style="margin-top:8px;"></table>
+            </div>
             <form id="formImportExecute" class="inline" style="margin-top:8px;">
-              <label>Excel 文件路径<input name="file_path" required></label>
-              <label>入库日期<input name="inbound_date" type="date" required></label>
+              <label>已上传文件路径<input id="importFilePathExec" name="file_path" required></label>
+              <label>入库日期（可空则默认今天）<input id="importInboundDate" name="inbound_date" type="date"></label>
+              <button class="btn" id="btnFillToday" type="button">填充今天</button>
               <label>仅演练
-                <select name="dry_run"><option value="1">是</option><option value="0">否</option></select>
+                <select name="dry_run"><option value="0">否（默认）</option><option value="1">是</option></select>
               </label>
               <button class="btn primary" type="submit">执行导入</button>
+            </form>
+            <form id="formImportRollback" class="inline" style="margin-top:8px;">
+              <label>撤销批次ID<input name="batch_id" required></label>
+              <button class="btn" type="submit">撤销该批导入</button>
             </form>
           </div>
           <div class="card">
@@ -314,6 +378,15 @@
       </section>
     </main>
   </div>
+  <div id="doneModal" class="modal-mask">
+    <div class="modal-card">
+      <h3 style="margin:0 0 8px;">导入完成</h3>
+      <div id="doneModalText" class="small"></div>
+      <div style="margin-top:10px; display:flex; justify-content:flex-end;">
+        <button id="btnDoneModalOk" class="btn primary" type="button">知道了</button>
+      </div>
+    </div>
+  </div>
 
   <script>
     const state = {
@@ -322,6 +395,12 @@
       containers: {{ containers|tojson }},
       ledger: {{ ledger_rows|tojson }},
       statements: {{ statements|tojson }},
+      inboundFiltered: [],
+      inboundPage: 1,
+      inboundPageSize: 50,
+      ledgerFiltered: [],
+      ledgerPage: 1,
+      ledgerPageSize: 50,
     };
 
     function setMsg(text, ok = true) {
@@ -350,25 +429,78 @@
       return data;
     }
 
+    async function uploadInboundFile(file) {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/import/inbound/upload', {
+        method: 'POST',
+        body: fd,
+        credentials: 'same-origin',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'upload failed');
+      }
+      return data;
+    }
+
     function renderTable(el, headers, rows) {
       const head = '<tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr>';
       el.innerHTML = head + rows.join('');
     }
 
+    function showDoneModal(text) {
+      byId('doneModalText').textContent = text;
+      byId('doneModal').classList.add('show');
+    }
+    function hideDoneModal() {
+      byId('doneModal').classList.remove('show');
+    }
+
     function renderCustomers() {
       const rows = state.customers.map(c =>
-        `<tr><td>${c.id}</td><td>${c.customer_code || ''}</td><td>${c.name || ''}</td><td>${c.aliases ? c.aliases.length : 0}</td><td>${c.default_price_per_m3 ?? ''}</td></tr>`
+        `<tr><td>${c.id}</td><td>${c.customer_code || ''}</td><td>${c.name || ''}</td><td>${(c.aliases || []).join(' / ')}</td><td>${c.default_price_per_m3 ?? ''}</td></tr>`
       );
-      renderTable(document.getElementById('tableCustomers'), ['ID', '编码', '客户名', '别名数', '默认单价'], rows);
+      renderTable(document.getElementById('tableCustomers'), ['ID', '编码', '客户名', '别名', '默认单价'], rows);
       document.getElementById('statCustomers').textContent = String(state.customers.length);
     }
 
-    function renderInbound(rows = state.inbound) {
-      const trs = rows.map(i =>
-        `<tr><td>${i.id}</td><td>${i.inbound_no || ''}</td><td>${i.inbound_date || ''}</td><td>${i.customer_name || ''}</td><td>${i.item_name_cn || ''}</td><td>${i.status || ''}</td><td>${i.cbm_final ?? ''}</td></tr>`
+    function renderInbound(rows = null) {
+      if (rows !== null) {
+        state.inboundFiltered = rows;
+      }
+      const allRows = state.inboundFiltered;
+      const pageSize = Number(state.inboundPageSize || 50);
+      const totalPages = Math.max(1, Math.ceil(allRows.length / pageSize));
+      if (state.inboundPage > totalPages) state.inboundPage = totalPages;
+      if (state.inboundPage < 1) state.inboundPage = 1;
+      const start = (state.inboundPage - 1) * pageSize;
+      const pageRows = allRows.slice(start, start + pageSize);
+      const trs = pageRows.map(i =>
+        `<tr>
+          <td>${i.inbound_date || ''}</td>
+          <td>${i.customer_name || ''}</td>
+          <td>${i.shop_no || ''}</td>
+          <td>${i.position_or_tel || ''}</td>
+          <td>${i.item_no || ''}</td>
+          <td>${i.item_name_cn || ''}</td>
+          <td>${i.material || ''}</td>
+          <td>${i.carton_count ?? ''}</td>
+          <td>${i.qty ?? ''}</td>
+          <td>${i.unit_price ?? ''}</td>
+          <td>${i.total_price ?? ''}</td>
+          <td>${i.deposit_hint ?? ''}</td>
+          <td>${i.cbm_calculated ?? ''}</td>
+          <td>${i.status || ''}</td>
+        </tr>`
       );
-      renderTable(document.getElementById('tableInbound'), ['ID', '入库单号', '日期', '客户', '品名', '状态', 'CBM'], trs);
-      document.getElementById('statInbound').textContent = String(rows.length);
+      renderTable(
+        document.getElementById('tableInbound'),
+        ['入库日期', 'CUSTOMER NAME', 'SHOP NO', '位置', 'ITEM NO', '品名', '材质', 'CTNS', 'QTY', 'PRICE', 'T.PRICE', '定金', 'CBM', '状态'],
+        trs
+      );
+      byId('inboundPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.inboundPage}/${totalPages} 页`;
+      document.getElementById('statInbound').textContent = String(allRows.length);
     }
 
     function renderContainers() {
@@ -382,14 +514,25 @@
       document.getElementById('statContainers').textContent = String(state.containers.length);
     }
 
-    function renderLedger(rows = state.ledger) {
-      const trs = rows.map(r =>
-        `<tr><td>${r.customer_id}</td><td>${r.name || ''}</td><td>${r.total_deposit ?? 0}</td><td>${r.total_freight ?? 0}</td><td>${r.net_balance ?? 0}</td></tr>`
+    function renderLedger(rows = null) {
+      if (rows !== null) {
+        state.ledgerFiltered = rows;
+      }
+      const allRows = state.ledgerFiltered;
+      const pageSize = Number(state.ledgerPageSize || 50);
+      const totalPages = Math.max(1, Math.ceil(allRows.length / pageSize));
+      if (state.ledgerPage > totalPages) state.ledgerPage = totalPages;
+      if (state.ledgerPage < 1) state.ledgerPage = 1;
+      const start = (state.ledgerPage - 1) * pageSize;
+      const pageRows = allRows.slice(start, start + pageSize);
+      const trs = pageRows.map(r =>
+        `<tr><td>${r.customer_id}</td><td>${r.name || ''}</td><td>${(r.aliases || []).join(' / ')}</td><td>${r.total_deposit ?? 0}</td><td>${r.total_freight ?? 0}</td><td>${r.net_balance ?? 0}</td></tr>`
       );
-      renderTable(document.getElementById('tableLedger'), ['客户ID', '客户名', '总定金', '总运费', '净余额'], trs);
-      renderTable(document.getElementById('tableLedgerMini'), ['客户', '定金', '运费', '净余额'], rows.slice(0, 10).map(r =>
+      renderTable(document.getElementById('tableLedger'), ['客户ID', '客户名', '别名', '总定金', '总运费', '净余额'], trs);
+      renderTable(document.getElementById('tableLedgerMini'), ['客户', '定金', '运费', '净余额'], allRows.slice(0, 10).map(r =>
         `<tr><td>${r.name || ''}</td><td>${r.total_deposit ?? 0}</td><td>${r.total_freight ?? 0}</td><td>${r.net_balance ?? 0}</td></tr>`
       ));
+      byId('ledgerPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.ledgerPage}/${totalPages} 页`;
     }
 
     function renderStatements() {
@@ -450,10 +593,21 @@
         e.preventDefault();
         const f = new FormData(e.target);
         try {
+          const customerIdRaw = String(f.get('customer_id') || '').trim();
+          const customerNameRaw = String(f.get('customer_name') || '').trim();
+          if (!customerIdRaw && !customerNameRaw) {
+            setMsg('请填写客户ID或客户名', false);
+            return;
+          }
           await api('/customer-aliases', 'POST', {
-            customer_id: Number(f.get('customer_id')),
+            customer_id: customerIdRaw ? Number(customerIdRaw) : null,
+            customer_name: customerNameRaw || null,
             alias_name: f.get('alias_name'),
           });
+          await refreshCustomers();
+          const rows = await api('/ledger');
+          state.ledger = rows;
+          renderLedger(rows);
           setMsg('别名已保存');
           e.target.reset();
         } catch (err) { setMsg(err.message, false); }
@@ -474,12 +628,31 @@
         } catch (err) { setMsg(err.message, false); }
       };
 
+      byId('formMergeCustomer').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          const r = await api('/customers/merge', 'POST', {
+            source_customer_id: Number(f.get('source_customer_id')),
+            target_customer_id: Number(f.get('target_customer_id')),
+          });
+          await refreshCustomers();
+          const rows = await api('/ledger');
+          state.ledger = rows;
+          renderLedger(rows);
+          setMsg(`客户合并完成：${r.source_name} -> ${r.target_name}`);
+          byId('ioResult').textContent = JSON.stringify(r, null, 2);
+        } catch (err) { setMsg(err.message, false); }
+      };
+
       byId('formInboundQuery').onsubmit = async (e) => {
         e.preventDefault();
         const f = new FormData(e.target);
         const d = f.get('inbound_date');
         const only = f.get('only_in_stock');
         const kw = String(f.get('keyword') || '').trim().toUpperCase();
+        state.inboundPageSize = Number(f.get('page_size') || 50);
+        state.inboundPage = 1;
         let path = '/inbound-items?';
         if (d) path += 'inbound_date=' + encodeURIComponent(d) + '&';
         if (only) path += 'only_in_stock=' + encodeURIComponent(only);
@@ -500,6 +673,8 @@
         e.preventDefault();
         const f = new FormData(e.target);
         const customerId = String(f.get('customer_id') || '').trim();
+        state.ledgerPageSize = Number(f.get('page_size') || 50);
+        state.ledgerPage = 1;
         const path = customerId ? `/ledger?customer_id=${encodeURIComponent(customerId)}` : '/ledger';
         try {
           const rows = await api(path);
@@ -508,6 +683,11 @@
           setMsg('总账查询完成');
         } catch (err) { setMsg(err.message, false); }
       };
+
+      byId('btnInboundPrev').onclick = () => { state.inboundPage -= 1; renderInbound(); };
+      byId('btnInboundNext').onclick = () => { state.inboundPage += 1; renderInbound(); };
+      byId('btnLedgerPrev').onclick = () => { state.ledgerPage -= 1; renderLedger(); };
+      byId('btnLedgerNext').onclick = () => { state.ledgerPage += 1; renderLedger(); };
 
       byId('formCreateContainer').onsubmit = async (e) => {
         e.preventDefault();
@@ -617,12 +797,47 @@
         } catch (err) { setMsg(err.message, false); }
       };
 
+      byId('formImportUpload').onsubmit = async (e) => {
+        e.preventDefault();
+        const input = byId('importFileInput');
+        const file = input.files && input.files[0];
+        if (!file) {
+          setMsg('请先选择文件', false);
+          return;
+        }
+        try {
+          const r = await uploadInboundFile(file);
+          byId('importFilePath').value = r.file_path;
+          byId('importFilePathExec').value = r.file_path;
+          byId('importUploadState').textContent = `已上传: ${r.filename}`;
+          setMsg('收货清单上传成功');
+        } catch (err) { setMsg(err.message, false); }
+      };
+
       byId('formImportPreview').onsubmit = async (e) => {
         e.preventDefault();
         const f = new FormData(e.target);
         try {
           const r = await api('/import/inbound/preview', 'POST', { file_path: f.get('file_path') });
-          byId('importPreview').textContent = JSON.stringify(r, null, 2);
+          const mapText = Object.entries(r.field_mapping || {})
+            .map(([k, v]) => `第${Number(k) + 1}列 → ${v}`).join('；');
+          byId('importPreviewSummary').textContent =
+            `表头行: 第 ${r.header_row} 行；识别字段: ${mapText || '无'}；示例记录: ${(r.sample_rows || []).length} 行`;
+          const sample = (r.sample_rows || []).slice(0, 8);
+          renderTable(
+            byId('importPreviewTable'),
+            ['客户', '货号', '品名', '箱数', '数量', 'CBM', '原始行号'],
+            sample.map(x => `<tr>
+              <td>${x.customer_name || ''}</td>
+              <td>${x.item_no || ''}</td>
+              <td>${x.item_name_cn || ''}</td>
+              <td>${x.carton_count ?? ''}</td>
+              <td>${x.qty ?? ''}</td>
+              <td>${x.cbm_calculated ?? ''}</td>
+              <td>${x.row_no ?? ''}</td>
+            </tr>`)
+          );
+          byId('importPreviewBox').classList.add('show');
           setMsg('导入预览完成');
         } catch (err) { setMsg(err.message, false); }
       };
@@ -633,11 +848,44 @@
         try {
           const r = await api('/import/inbound/execute', 'POST', {
             file_path: f.get('file_path'),
-            inbound_date: f.get('inbound_date'),
+            inbound_date: f.get('inbound_date') || null,
             dry_run: f.get('dry_run') === '1',
           });
           byId('ioResult').textContent = JSON.stringify(r, null, 2);
-          setMsg('导入执行完成');
+          if (f.get('dry_run') === '1') {
+            setMsg(`导入演练完成：日期 ${r.inbound_date_used}，总计 ${r.total_rows}，通过 ${r.success_rows}，失败 ${r.failed_rows}，待新建客户 ${r.auto_created_customer_count || 0}`);
+          } else {
+            await refreshCustomers();
+            const rows = await api(`/inbound-items?inbound_date=${encodeURIComponent(r.inbound_date_used)}`);
+            renderInbound(rows);
+            setMsg(`导入完成：日期 ${r.inbound_date_used}，成功入库 ${r.success_rows}，失败 ${r.failed_rows}，自动新建客户 ${r.auto_created_customer_count || 0}`);
+            showDoneModal(`批次ID: ${r.batch_id}；入库日期: ${r.inbound_date_used}；成功入库: ${r.success_rows} 条；失败: ${r.failed_rows} 条；新建客户: ${r.auto_created_customer_count || 0}。`);
+          }
+        } catch (err) { setMsg(err.message, false); }
+      };
+
+      byId('btnClosePreview').onclick = () => {
+        byId('importPreviewBox').classList.remove('show');
+        byId('importPreviewSummary').textContent = '';
+        byId('importPreviewTable').innerHTML = '';
+      };
+      byId('btnFillToday').onclick = () => {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const d = String(now.getDate()).padStart(2, '0');
+        byId('importInboundDate').value = `${y}-${m}-${d}`;
+      };
+      byId('btnDoneModalOk').onclick = hideDoneModal;
+
+      byId('formImportRollback').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          const batchId = Number(f.get('batch_id'));
+          const r = await api(`/import/inbound/rollback/${batchId}`, 'POST', {});
+          byId('ioResult').textContent = JSON.stringify(r, null, 2);
+          setMsg('导入批次已撤销');
         } catch (err) { setMsg(err.message, false); }
       };
 
@@ -697,9 +945,11 @@
     setupTabs();
     setupForms();
     renderCustomers();
-    renderInbound();
+    state.inboundFiltered = state.inbound;
+    state.ledgerFiltered = state.ledger;
+    renderInbound(state.inbound);
     renderContainers();
-    renderLedger();
+    renderLedger(state.ledger);
     renderStatements();
   </script>
 </body>

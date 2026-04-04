@@ -83,6 +83,24 @@ CREATE TABLE IF NOT EXISTS import_batches (
   FOREIGN KEY(created_by) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS inbound_import_rows (
+  id INTEGER PRIMARY KEY,
+  import_batch_id INTEGER NOT NULL,
+  row_no INTEGER NOT NULL,
+  inbound_item_id INTEGER,
+  is_valid INTEGER NOT NULL DEFAULT 0,
+  error_reason TEXT,
+  source_sheet TEXT,
+  customer_name_raw TEXT,
+  item_name_raw TEXT,
+  source_row_json TEXT NOT NULL,
+  normalized_row_json TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE(import_batch_id, row_no),
+  FOREIGN KEY(import_batch_id) REFERENCES import_batches(id),
+  FOREIGN KEY(inbound_item_id) REFERENCES inbound_items(id)
+);
+
 CREATE TABLE IF NOT EXISTS containers (
   id INTEGER PRIMARY KEY,
   container_no TEXT NOT NULL UNIQUE,
@@ -226,3 +244,4 @@ CREATE INDEX IF NOT EXISTS idx_inbound_status_date ON inbound_items(status, inbo
 CREATE INDEX IF NOT EXISTS idx_inbound_customer ON inbound_items(customer_id);
 CREATE INDEX IF NOT EXISTS idx_container_items_container ON container_items(container_id);
 CREATE INDEX IF NOT EXISTS idx_customer_aliases_customer ON customer_aliases(customer_id);
+CREATE INDEX IF NOT EXISTS idx_import_rows_batch ON inbound_import_rows(import_batch_id);

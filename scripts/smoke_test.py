@@ -111,7 +111,7 @@ def run() -> None:
 
     # import preview + dry run execute (no real data import)
     with tempfile.TemporaryDirectory() as tmp:
-        sample = Path(tmp) / 'sample.xlsx'
+        sample = Path(tmp) / 'sample_收货清单.xlsx'
         make_sample_excel(sample)
         r = c.post('/import/inbound/preview', json={'file_path': str(sample)})
         assert r.status_code == 200, r.data

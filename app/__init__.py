@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from functools import wraps
 from pathlib import Path
+from uuid import uuid4
 
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
-from .config import BACKUP_DIR, DB_PATH, SECRET_KEY
+from .config import BACKUP_DIR, DB_PATH, IMPORT_UPLOAD_DIR, SECRET_KEY
 from .db import db_session, init_db
 from .services.auth import authenticate, change_password
 from .services.backup import backup_sqlite
@@ -18,9 +19,9 @@ from .services.containers import (
     remove_item_from_container,
     revoke_container,
 )
-from .services.customers import create_customer, list_customers, resolve_customer_id, upsert_alias
+from .services.customers import create_customer, find_customer_id_by_name, list_customers, merge_customers, resolve_customer_id, upsert_alias
 from .services.finance import add_payment, generate_statement, ledger, list_statements, post_statement
-from .services.importer import import_inbound_excel, parse_inbound_excel
+from .services.importer import import_inbound_excel, parse_inbound_excel, rollback_inbound_import_batch
 from .services.inbound import create_inbound_item, delete_inbound_item, list_inbound, update_inbound_item
 from .services.pricing import upsert_price_rule
 from .services.reports import (
@@ -138,14 +139,25 @@ def create_app() -> Flask:
     def alias_upsert():
         payload = request.get_json(force=True)
         customer_id = payload.get('customer_id')
+        customer_name = (payload.get('customer_name') or '').strip()
         alias_name = payload.get('alias_name')
-        if not customer_id or not alias_name:
-            return {'error': 'customer_id and alias_name are required'}, 400
+        if not alias_name:
+            return {'error': 'alias_name is required'}, 400
+
+        if customer_id:
+            target_id = int(customer_id)
+        elif customer_name:
+            with db_session() as conn:
+                target_id = find_customer_id_by_name(conn, customer_name)
+            if target_id is None:
+                return {'error': 'customer not found by customer_name'}, 400
+        else:
+            return {'error': 'customer_id or customer_name is required'}, 400
 
         with db_session() as conn:
             upsert_alias(
                 conn,
-                customer_id=int(customer_id),
+                customer_id=target_id,
                 alias_name=alias_name,
                 source=payload.get('source', 'MANUAL'),
                 is_primary=int(payload.get('is_primary', 0)),
@@ -153,6 +165,16 @@ def create_app() -> Flask:
                 remark=payload.get('remark'),
             )
         return {'message': 'ok'}
+
+    @app.route('/customers/merge', methods=['POST'])
+    @login_required
+    def customers_merge_api():
+        payload = request.get_json(force=True)
+        source_id = int(payload['source_customer_id'])
+        target_id = int(payload['target_customer_id'])
+        with db_session() as conn:
+            result = merge_customers(conn, source_id, target_id)
+        return result
 
     @app.route('/customer-resolve', methods=['GET'])
     @login_required
@@ -368,19 +390,46 @@ def create_app() -> Flask:
             'field_mapping': result['field_mapping'],
         }
 
+    @app.route('/import/inbound/upload', methods=['POST'])
+    @login_required
+    def import_upload_api():
+        if 'file' not in request.files:
+            return {'error': 'file is required'}, 400
+        f = request.files['file']
+        if not f or not f.filename:
+            return {'error': 'empty filename'}, 400
+        filename = Path(f.filename).name
+        suffix = Path(filename).suffix.lower()
+        if suffix not in ('.xlsx', '.xls'):
+            return {'error': 'only .xlsx/.xls allowed'}, 400
+        if '收货清单' not in filename:
+            return {'error': '文件名必须包含“收货清单”'}, 400
+
+        out = IMPORT_UPLOAD_DIR / f'{uuid4().hex[:10]}_{filename}'
+        f.save(out)
+        return {'file_path': str(out), 'filename': filename}
+
     @app.route('/import/inbound/execute', methods=['POST'])
     @login_required
     def import_execute_api():
         payload = request.get_json(force=True)
         path = Path(payload['file_path'])
+        inbound_date = payload.get('inbound_date')
         with db_session() as conn:
             result = import_inbound_excel(
                 conn,
                 path=path,
-                inbound_date=payload['inbound_date'],
+                inbound_date=inbound_date,
                 created_by=int(session['user_id']),
-                dry_run=bool(payload.get('dry_run', True)),
+                dry_run=bool(payload.get('dry_run', False)),
             )
+        return result
+
+    @app.route('/import/inbound/rollback/<int:batch_id>', methods=['POST'])
+    @login_required
+    def import_rollback_api(batch_id: int):
+        with db_session() as conn:
+            result = rollback_inbound_import_batch(conn, batch_id)
         return result
 
     @app.route('/ui/dashboard', methods=['GET'])
