@@ -78,24 +78,99 @@ def _is_skip_item_token(value: str) -> bool:
     return bool(re.match(r'^\d+\s*CTNS?$', v))
 
 
-def _read_sheet(path: Path, max_cols: int = 40) -> tuple[str, list[list]]:
+def _read_sheet(path: Path, max_cols: int = 40) -> tuple[str, list[list], list[tuple[int, int, int, int]]]:
     rows: list[list] = []
+    merged_ranges: list[tuple[int, int, int, int]] = []
     suffix = path.suffix.lower()
     if suffix == '.xlsx':
-        wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
+        wb = openpyxl.load_workbook(path, data_only=True, read_only=False)
         sheet_name = wb.sheetnames[0]
         ws = wb[sheet_name]
+        for rg in ws.merged_cells.ranges:
+            merged_ranges.append((int(rg.min_row), int(rg.max_row), int(rg.min_col), int(rg.max_col)))
         for r in ws.iter_rows(values_only=True, max_col=max_cols):
             rows.append(list(r))
         wb.close()
-        return sheet_name, rows
+        return sheet_name, rows, merged_ranges
     if suffix == '.xls':
         wb = xlrd.open_workbook(path)
         sh = wb.sheet_by_index(0)
+        for rlo, rhi, clo, chi in sh.merged_cells:
+            # xlrd uses 0-based half-open bounds: [rlo, rhi), [clo, chi)
+            merged_ranges.append((int(rlo + 1), int(rhi), int(clo + 1), int(chi)))
         for i in range(sh.nrows):
             rows.append(sh.row_values(i, 0, max_cols))
-        return sh.name or 'Sheet1', rows
+        return sh.name or 'Sheet1', rows, merged_ranges
     raise ValueError('unsupported file type')
+
+
+def _collapse_rows_by_merged_carton(
+    parsed_rows: list[dict],
+    merged_ranges: list[tuple[int, int, int, int]],
+    carton_col_idx: int | None,
+) -> list[dict]:
+    if not parsed_rows or carton_col_idx is None:
+        return parsed_rows
+
+    carton_col_1based = int(carton_col_idx) + 1
+    candidate_ranges = [
+        rg for rg in merged_ranges
+        if rg[0] < rg[1] and rg[2] <= carton_col_1based <= rg[3]
+    ]
+    if not candidate_ranges:
+        return parsed_rows
+
+    row_to_range: dict[int, tuple[int, int, int, int]] = {}
+    for rg in candidate_ranges:
+        min_row, max_row, _, _ = rg
+        for rn in range(min_row, max_row + 1):
+            row_to_range.setdefault(rn, rg)
+
+    rows_by_no = {int(r['row_no']): r for r in parsed_rows}
+    sorted_rows = sorted(parsed_rows, key=lambda x: int(x.get('row_no') or 0))
+    consumed: set[int] = set()
+    out: list[dict] = []
+
+    for row in sorted_rows:
+        row_no = int(row.get('row_no') or 0)
+        if row_no in consumed:
+            continue
+        rg = row_to_range.get(row_no)
+        if not rg:
+            consumed.add(row_no)
+            out.append(row)
+            continue
+
+        min_row, max_row, _, _ = rg
+        members = [rows_by_no[rn] for rn in range(min_row, max_row + 1) if rn in rows_by_no and rn not in consumed]
+        if len(members) <= 1:
+            consumed.add(row_no)
+            out.append(row)
+            continue
+
+        base = dict(members[0])
+        item_names: list[str] = []
+        for m in members:
+            name = str(m.get('item_name_cn') or '').strip()
+            if name and name not in item_names:
+                item_names.append(name)
+        if item_names:
+            base['item_name_cn'] = '+'.join(item_names)
+
+        # Merged-carton rows represent one carton containing multiple item lines:
+        # monetary fields should aggregate across member lines.
+        base['qty'] = sum(to_int(m.get('qty')) for m in members)
+        base['unit_price'] = round(sum(to_float(m.get('unit_price')) for m in members), 2)
+        base['total_price'] = round(sum(to_float(m.get('total_price')) for m in members), 2)
+
+        raw_row = dict(base.get('raw_row') or {})
+        raw_row['MERGED_CARTON_ROWS'] = ','.join(str(int(m.get('row_no') or 0)) for m in members)
+        base['raw_row'] = raw_row
+
+        out.append(base)
+        consumed.update(int(m.get('row_no') or 0) for m in members)
+
+    return out
 
 
 def _norm_header(value) -> str:
@@ -222,7 +297,7 @@ def _parse_headerless_excel(path: Path, sheet_name: str, rows: list[list]) -> di
 
 def parse_inbound_excel(path: Path) -> dict:
     _ensure_receipt_file(path)
-    sheet_name, rows = _read_sheet(path)
+    sheet_name, rows, merged_ranges = _read_sheet(path)
     try:
         header_idx, mapping, labels = _detect_header(rows)
     except ValueError:
@@ -288,6 +363,12 @@ def parse_inbound_excel(path: Path) -> dict:
                 'raw_row': raw_map,
             }
         )
+
+    parsed = _collapse_rows_by_merged_carton(
+        parsed_rows=parsed,
+        merged_ranges=merged_ranges,
+        carton_col_idx=next((idx for idx, field in mapping.items() if field == 'carton_count'), None),
+    )
 
     return {
         'sheet_name': sheet_name,

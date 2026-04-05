@@ -283,7 +283,7 @@
           </form>
         </div>
         <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
-          <div id="inboundPageInfo" class="small"></div>
+          <div id="inboundPageInfo" style="font-size:14px; font-weight:600;"></div>
           <div style="display:flex; gap:8px;">
             <button class="btn" id="btnInboundPrev" type="button">上一页</button>
             <button class="btn" id="btnInboundNext" type="button">下一页</button>
@@ -763,6 +763,7 @@
       statements: {{ statements|tojson }},
       summary: { customer_count: 0, inbound_count: 0, container_count: 0, statement_count: 0 },
       inboundFiltered: [],
+      inboundTotalCbm: 0,
       inboundPage: 1,
       inboundPageSize: 50,
       inboundQuery: { inbound_date: '', batch_id: '', only_in_stock: '1', keyword: '' },
@@ -1077,7 +1078,7 @@
         trs
       );
       byId('tableInbound').classList.add('compact');
-      byId('inboundPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.inboundPage}/${totalPages} 页`;
+      byId('inboundPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.inboundPage}/${totalPages} 页， 总CBM ${state.inboundTotalCbm.toFixed(3)}`;
     }
 
     function renderContainers() {
@@ -1479,7 +1480,9 @@
 
     async function runInboundQuery(resetPage = true) {
       if (resetPage) state.inboundPage = 1;
-      let rows = await api(buildInboundQueryPath());
+      const allRows = await api(buildInboundQueryPath());
+      state.inbound = allRows;
+      let rows = allRows;
       const kw = (state.inboundQuery.keyword || '').trim().toUpperCase();
       if (kw) {
         rows = rows.filter(r => {
@@ -1487,7 +1490,7 @@
           return s.includes(kw);
         });
       }
-      state.inbound = rows;
+      state.inboundTotalCbm = sumInboundCbm(rows);
       renderInbound(rows);
     }
 
@@ -1506,6 +1509,13 @@
     }
 
     function byId(id) { return document.getElementById(id); }
+
+    function sumInboundCbm(rows) {
+      return (rows || []).reduce((sum, r) => {
+        const cbm = Number(r.cbm_final ?? r.cbm_calculated ?? 0);
+        return sum + (Number.isFinite(cbm) ? cbm : 0);
+      }, 0);
+    }
 
     function setupSecondaryTabs() {
       const uniq = (arr) => Array.from(new Set(arr.filter(Boolean)));
@@ -2409,6 +2419,7 @@
     setupForms();
     renderCustomers();
     state.inboundFiltered = state.inbound;
+    state.inboundTotalCbm = sumInboundCbm(state.inbound);
     state.ledgerFiltered = state.ledger;
     renderInbound(state.inbound);
     renderContainers();
