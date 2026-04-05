@@ -116,6 +116,22 @@
     .preview-box { margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #fbfdff; display: none; }
     .preview-box.show { display: block; }
     .preview-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .sec-title {
+      margin: 12px 0 8px;
+      font-size: 13px;
+      color: #4b647b;
+      font-weight: 700;
+    }
+    .path-box {
+      margin-top: 6px;
+      border: 1px solid #d4e2f0;
+      background: #f8fbff;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 12px;
+      color: #4d6378;
+      word-break: break-all;
+    }
     .planner-split > div:first-child {
       background: #f7fbff;
       border: 1px solid #d7e6f6;
@@ -574,6 +590,7 @@
         <div class="grid-2">
           <div class="card">
             <h3>手动导入收货清单</h3>
+            <div class="sec-title">1) 上传并预览</div>
             <form id="formImportUpload" class="inline">
               <label>选择文件
                 <input id="importFileInput" name="file" type="file" accept=".xlsx,.xls" required>
@@ -581,8 +598,9 @@
               <button class="btn" type="submit">上传收货清单</button>
             </form>
             <div class="small" id="importUploadState" style="margin-top:6px;">仅支持文件名包含“收货清单”的 Excel</div>
+            <div id="importPathBox" class="path-box">当前文件路径：未上传</div>
             <form id="formImportPreview" class="inline">
-              <label>已上传文件路径<input id="importFilePath" name="file_path" required placeholder="先上传文件后自动填充"></label>
+              <input id="importFilePathPreview" name="file_path" type="hidden" required>
               <button class="btn" type="submit">预览字段映射</button>
             </form>
             <div id="importPreviewBox" class="preview-box">
@@ -593,8 +611,9 @@
               <div id="importPreviewSummary" class="small"></div>
               <table id="importPreviewTable" style="margin-top:8px;"></table>
             </div>
+            <div class="sec-title">2) 执行导入</div>
             <form id="formImportExecute" class="inline" style="margin-top:8px;">
-              <label>已上传文件路径<input id="importFilePathExec" name="file_path" required></label>
+              <input id="importFilePathExec" name="file_path" type="hidden" required>
               <label>入库日期（可空则默认今天）<input id="importInboundDate" name="inbound_date" type="date"></label>
               <button class="btn" id="btnFillToday" type="button">填充今天</button>
               <label>仅演练
@@ -602,11 +621,12 @@
               </label>
               <button class="btn primary" type="submit">执行导入</button>
             </form>
-            <form id="formImportRollback" class="inline" style="margin-top:8px;">
-              <label>撤销批次ID<input name="batch_id" required></label>
-              <button class="btn" type="submit">撤销该批导入</button>
-            </form>
-            <div style="margin-top:8px; border-top:1px dashed var(--line); padding-top:8px;">
+            <div class="sec-title" style="margin-top:14px;">3) 批次管理（查询 / 撤销）</div>
+            <div style="margin-top:4px; border-top:1px dashed var(--line); padding-top:8px;">
+              <form id="formImportRollback" class="inline" style="margin-top:0;">
+                <label>撤销批次ID<input name="batch_id" required></label>
+                <button class="btn" type="submit">撤销该批导入</button>
+              </form>
               <form id="formImportBatchQuery" class="inline">
                 <label>批次ID（可空）<input name="batch_id" placeholder="例如 12"></label>
                 <label>入库日期（可空）<input type="date" name="inbound_date"></label>
@@ -774,6 +794,26 @@
     }
     function hideDoneModal() {
       byId('doneModal').classList.remove('show');
+    }
+
+    function setImportFilePath(path = '', filename = '') {
+      const p = String(path || '').trim();
+      byId('importFilePathPreview').value = p;
+      byId('importFilePathExec').value = p;
+      byId('importPathBox').textContent = p ? `当前文件路径：${p}` : '当前文件路径：未上传';
+      if (filename) {
+        byId('importUploadState').textContent = `已上传: ${filename}`;
+      } else if (!p) {
+        byId('importUploadState').textContent = '仅支持文件名包含“收货清单”的 Excel';
+      }
+    }
+
+    function clearImportSelection() {
+      byId('importFileInput').value = '';
+      setImportFilePath('', '');
+      byId('importPreviewBox').classList.remove('show');
+      byId('importPreviewSummary').textContent = '';
+      byId('importPreviewTable').innerHTML = '';
     }
 
     function statusPill(status) {
@@ -1811,9 +1851,7 @@
         }
         try {
           const r = await uploadInboundFile(file);
-          byId('importFilePath').value = r.file_path;
-          byId('importFilePathExec').value = r.file_path;
-          byId('importUploadState').textContent = `已上传: ${r.filename}`;
+          setImportFilePath(r.file_path, r.filename);
           setMsg('收货清单上传成功');
         } catch (err) { setMsg(err.message, false); }
       };
@@ -1821,8 +1859,13 @@
       byId('formImportPreview').onsubmit = async (e) => {
         e.preventDefault();
         const f = new FormData(e.target);
+        const filePath = String(f.get('file_path') || '').trim();
+        if (!filePath) {
+          setMsg('请先上传收货清单', false);
+          return;
+        }
         try {
-          const r = await api('/import/inbound/preview', 'POST', { file_path: f.get('file_path') });
+          const r = await api('/import/inbound/preview', 'POST', { file_path: filePath });
           const mapText = Object.entries(r.field_mapping || {})
             .map(([k, v]) => `第${Number(k) + 1}列 → ${v}`).join('；');
           byId('importPreviewSummary').textContent =
@@ -1849,24 +1892,34 @@
       byId('formImportExecute').onsubmit = async (e) => {
         e.preventDefault();
         const f = new FormData(e.target);
+        const filePath = String(f.get('file_path') || '').trim();
+        if (!filePath) {
+          setMsg('请先上传收货清单', false);
+          return;
+        }
         try {
           const r = await api('/import/inbound/execute', 'POST', {
-            file_path: f.get('file_path'),
+            file_path: filePath,
             inbound_date: f.get('inbound_date') || null,
             dry_run: f.get('dry_run') === '1',
           });
           byId('ioResult').textContent = JSON.stringify(r, null, 2);
           if (f.get('dry_run') === '1') {
             setMsg(`导入演练完成：日期 ${r.inbound_date_used}，总计 ${r.total_rows}，通过 ${r.success_rows}，失败 ${r.failed_rows}，待新建客户 ${r.auto_created_customer_count || 0}`);
+            await refreshImportBatches('', '', 50);
+            await refreshSummary();
+            clearImportSelection();
+            showDoneModal(`导入演练完成，共 ${r.success_rows}/${r.total_rows} 条通过。`, '执行完成');
           } else {
             await refreshCustomers();
             state.inboundQuery.inbound_date = String(r.inbound_date_used || '').trim();
             state.inboundQuery.only_in_stock = '1';
             await runInboundQuery(true);
             await refreshSummary();
-            await refreshImportBatches('', r.inbound_date_used, 50);
+            await refreshImportBatches('', '', 50);
             setMsg(`导入完成：日期 ${r.inbound_date_used}，成功入库 ${r.success_rows}，失败 ${r.failed_rows}，自动新建客户 ${r.auto_created_customer_count || 0}`);
-            showDoneModal(`批次ID: ${r.batch_id}；入库日期: ${r.inbound_date_used}；成功入库: ${r.success_rows} 条；失败: ${r.failed_rows} 条；新建客户: ${r.auto_created_customer_count || 0}。`);
+            clearImportSelection();
+            showDoneModal(`批次ID: ${r.batch_id}；入库日期: ${r.inbound_date_used}；成功入库: ${r.success_rows} 条；失败: ${r.failed_rows} 条；新建客户: ${r.auto_created_customer_count || 0}。`, '执行完成');
           }
         } catch (err) { setMsg(err.message, false); }
       };

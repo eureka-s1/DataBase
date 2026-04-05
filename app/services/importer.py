@@ -302,7 +302,21 @@ def infer_inbound_date(path: Path, inbound_date: str | None = None) -> str:
     # New rule: do not parse date from filename/path.
     # If user did not provide a date, fallback to system date.
     if inbound_date and str(inbound_date).strip():
-        return str(inbound_date).strip()
+        raw = str(inbound_date).strip()
+        normalized = (
+            raw.replace('年', '-')
+            .replace('月', '-')
+            .replace('日', '')
+            .replace('.', '-')
+            .replace('/', '-')
+        )
+        normalized = re.sub(r'-{2,}', '-', normalized).strip('-')
+        try:
+            if re.match(r'^\d{4}-\d{1,2}-\d{1,2}$', normalized):
+                y, m, d = [int(x) for x in normalized.split('-')]
+                return datetime(y, m, d).strftime('%Y-%m-%d')
+        except Exception:
+            pass
     return datetime.now().strftime('%Y-%m-%d')
 
 
