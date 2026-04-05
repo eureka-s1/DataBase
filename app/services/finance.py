@@ -29,6 +29,21 @@ def add_payment(conn: Connection, payload: dict, user_id: int) -> int:
     return int(cur.lastrowid)
 
 
+def list_payments(conn: Connection, limit: int = 200) -> list[dict]:
+    rows = conn.execute(
+        '''
+        SELECT p.id, p.payment_no, p.customer_id, c.name AS customer_name, p.payment_date,
+               p.amount, p.currency, p.method, p.created_at
+        FROM payment_transactions p
+        JOIN customers c ON c.id = p.customer_id
+        ORDER BY p.id DESC
+        LIMIT ?
+        ''',
+        (limit,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def customer_deposit_balance(conn: Connection, customer_id: int) -> float:
     paid = conn.execute('SELECT COALESCE(SUM(amount),0) AS x FROM payment_transactions WHERE customer_id=?', (customer_id,)).fetchone()
     used = conn.execute(
@@ -68,6 +83,12 @@ def generate_statement(conn: Connection, container_id: int, user_id: int,
         raise ValueError('only CONFIRMED container can be settled')
     if c['default_price_per_m3'] is None:
         raise ValueError('container unit price is required')
+    active = conn.execute(
+        "SELECT id FROM settlement_statements WHERE container_id=? AND status IN ('DRAFT','POSTED') LIMIT 1",
+        (container_id,),
+    ).fetchone()
+    if active:
+        raise ValueError('container already has active settlement')
 
     date_val = statement_date or today_str()
     base_no = (statement_no or f'STM-{container_id}-{date_val.replace("-", "")}').strip()
@@ -143,6 +164,68 @@ def generate_statement(conn: Connection, container_id: int, user_id: int,
                 )
                 remaining = round(remaining - alloc, 2)
 
+    return statement_id
+
+
+def post_statement_by_container(conn: Connection, container_id: int) -> int:
+    row = conn.execute(
+        '''
+        SELECT id
+        FROM settlement_statements
+        WHERE container_id=? AND status='DRAFT'
+        ORDER BY id DESC
+        LIMIT 1
+        ''',
+        (container_id,),
+    ).fetchone()
+    if not row:
+        raise ValueError('no DRAFT settlement for this container')
+    statement_id = int(row['id'])
+    post_statement(conn, statement_id)
+    return statement_id
+
+
+def revoke_draft_statement_by_container(conn: Connection, container_id: int) -> int:
+    row = conn.execute(
+        '''
+        SELECT id
+        FROM settlement_statements
+        WHERE container_id=? AND status='DRAFT'
+        ORDER BY id DESC
+        LIMIT 1
+        ''',
+        (container_id,),
+    ).fetchone()
+    if not row:
+        raise ValueError('no DRAFT settlement for this container')
+    statement_id = int(row['id'])
+    conn.execute(
+        '''
+        DELETE FROM payment_allocations
+        WHERE settlement_line_id IN (SELECT id FROM settlement_lines WHERE statement_id=?)
+        ''',
+        (statement_id,),
+    )
+    conn.execute('DELETE FROM settlement_lines WHERE statement_id=?', (statement_id,))
+    conn.execute('DELETE FROM settlement_statements WHERE id=?', (statement_id,))
+    return statement_id
+
+
+def unpost_statement_by_container(conn: Connection, container_id: int) -> int:
+    row = conn.execute(
+        '''
+        SELECT id
+        FROM settlement_statements
+        WHERE container_id=? AND status='POSTED'
+        ORDER BY id DESC
+        LIMIT 1
+        ''',
+        (container_id,),
+    ).fetchone()
+    if not row:
+        raise ValueError('no POSTED settlement for this container')
+    statement_id = int(row['id'])
+    unpost_statement(conn, statement_id)
     return statement_id
 
 

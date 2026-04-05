@@ -24,7 +24,18 @@ from .services.containers import (
     update_item_cbm_at_load,
 )
 from .services.customers import create_customer, find_customer_id_by_name, list_customers, merge_customers, resolve_customer_id, upsert_alias
-from .services.finance import add_payment, generate_statement, ledger, list_statements, post_statement, unpost_statement
+from .services.finance import (
+    add_payment,
+    generate_statement,
+    ledger,
+    list_payments,
+    list_statements,
+    post_statement,
+    post_statement_by_container,
+    revoke_draft_statement_by_container,
+    unpost_statement_by_container,
+    unpost_statement,
+)
 from .services.importer import (
     import_inbound_excel,
     list_inbound_import_batches,
@@ -372,6 +383,14 @@ def create_app() -> Flask:
             pid = add_payment(conn, payload, int(session['user_id']))
         return {'id': pid}, 201
 
+    @app.route('/payments', methods=['GET'])
+    @login_required
+    def list_payments_api():
+        limit = int(request.args.get('limit', 200))
+        with db_session() as conn:
+            rows = list_payments(conn, limit=limit)
+        return jsonify(rows)
+
     @app.route('/settlements/generate', methods=['POST'])
     @login_required
     def generate_settlement_api():
@@ -399,6 +418,27 @@ def create_app() -> Flask:
         with db_session() as conn:
             unpost_statement(conn, statement_id)
         return {'message': 'unposted'}
+
+    @app.route('/settlements/container/<int:container_id>/post', methods=['POST'])
+    @login_required
+    def post_settlement_by_container_api(container_id: int):
+        with db_session() as conn:
+            statement_id = post_statement_by_container(conn, container_id)
+        return {'message': 'posted', 'statement_id': statement_id}
+
+    @app.route('/settlements/container/<int:container_id>/revoke', methods=['POST'])
+    @login_required
+    def revoke_settlement_by_container_api(container_id: int):
+        with db_session() as conn:
+            statement_id = revoke_draft_statement_by_container(conn, container_id)
+        return {'message': 'revoked', 'statement_id': statement_id}
+
+    @app.route('/settlements/container/<int:container_id>/unpost', methods=['POST'])
+    @login_required
+    def unpost_settlement_by_container_api(container_id: int):
+        with db_session() as conn:
+            statement_id = unpost_statement_by_container(conn, container_id)
+        return {'message': 'unposted', 'statement_id': statement_id}
 
     @app.route('/settlements', methods=['GET'])
     @login_required
@@ -448,6 +488,31 @@ def create_app() -> Flask:
             else:
                 path = export_statement_excel(conn, statement_id)
         return {'file_path': path}
+
+    @app.route('/exports/statement/by-container/<int:container_id>', methods=['POST'])
+    @login_required
+    def export_statement_by_container_api(container_id: int):
+        payload = request.get_json(force=True)
+        fmt = (payload.get('format') or 'xlsx').lower()
+        with db_session() as conn:
+            row = conn.execute(
+                '''
+                SELECT id
+                FROM settlement_statements
+                WHERE container_id=? AND status IN ('DRAFT','POSTED')
+                ORDER BY id DESC
+                LIMIT 1
+                ''',
+                (container_id,),
+            ).fetchone()
+            if not row:
+                return {'error': 'no settlement found for this container'}, 404
+            statement_id = int(row['id'])
+            if fmt == 'pdf':
+                path = export_statement_pdf(conn, statement_id)
+            else:
+                path = export_statement_excel(conn, statement_id)
+        return {'file_path': path, 'statement_id': statement_id}
 
     @app.route('/exports/container/<int:container_id>', methods=['POST'])
     @login_required
