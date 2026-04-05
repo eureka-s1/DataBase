@@ -11,11 +11,9 @@ REM   update_from_github.bat --sync-only     sync only
 REM   update_from_github.bat --start-only    start only
 REM =========================================================
 
-set "REPO_URL=https://gitee.com/sheng-zihang/DataBase.git"
-set "ZIP_URL=https://gitee.com/sheng-zihang/DataBase/repository/archive/main.zip"
-set "ZIP_URL_ALT=https://gitee.com/sheng-zihang/DataBase/repository/archive/master.zip"
-set "ZIP_URL_FALLBACK=https://github.com/eureka-s1/DataBase/archive/refs/heads/main.zip"
-set "ZIP_URL_FALLBACK_ALT=https://codeload.github.com/eureka-s1/DataBase/zip/refs/heads/main"
+set "REPO_URL=https://github.com/eureka-s1/DataBase"
+set "ZIP_URL=https://github.com/eureka-s1/DataBase/archive/refs/heads/main.zip"
+set "ZIP_URL_ALT=https://codeload.github.com/eureka-s1/DataBase/zip/refs/heads/main"
 set "REPO_DIR_NAME=DataBase"
 
 set "SCRIPT_DIR=%~dp0"
@@ -145,7 +143,7 @@ if not "%START_RC%"=="0" (
 call :finish 0
 
 :sync_with_zip
-echo [INFO] Syncing from Gitee ZIP (git-free mode).
+echo [INFO] Syncing from GitHub ZIP (git-free mode).
 echo [INFO] sync_with_zip>>"%LOG_FILE%"
 
 set "TMP_ROOT=%TEMP%\canyu_sync_%RANDOM%_%RANDOM%"
@@ -158,32 +156,15 @@ mkdir "%UNZIP_DIR%" >nul 2>nul
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri '%ZIP_URL%' -OutFile '%ZIP_FILE%'" >>"%LOG_FILE%" 2>&1
 if errorlevel 1 (
-  echo [WARN] Primary ZIP URL failed. Trying alternate Gitee URL...
-  echo [WARN] zip primary failed, trying gitee alt>>"%LOG_FILE%"
+  echo [WARN] Primary ZIP URL failed. Trying codeload URL...
+  echo [WARN] zip primary failed, trying alt>>"%LOG_FILE%"
   powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri '%ZIP_URL_ALT%' -OutFile '%ZIP_FILE%'" >>"%LOG_FILE%" 2>&1
-  if errorlevel 1 (
-    echo [WARN] Gitee URLs failed. Trying GitHub fallback...
-    echo [WARN] gitee failed, trying github fallback>>"%LOG_FILE%"
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri '%ZIP_URL_FALLBACK%' -OutFile '%ZIP_FILE%'" >>"%LOG_FILE%" 2>&1
-    if errorlevel 1 (
-      powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri '%ZIP_URL_FALLBACK_ALT%' -OutFile '%ZIP_FILE%'" >>"%LOG_FILE%" 2>&1
-      if errorlevel 1 exit /b 5
-    )
-  )
+  if errorlevel 1 exit /b 5
 )
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath '%ZIP_FILE%' -DestinationPath '%UNZIP_DIR%' -Force" >>"%LOG_FILE%" 2>&1
 if errorlevel 1 exit /b 6
 
-if not exist "%SRC_DIR%" (
-  if exist "%UNZIP_DIR%\DataBase-master" (
-    set "SRC_DIR=%UNZIP_DIR%\DataBase-master"
-  ) else (
-    for /d %%D in ("%UNZIP_DIR%\DataBase-*") do (
-      if exist "%%~fD\run.py" set "SRC_DIR=%%~fD"
-    )
-  )
-)
 if not exist "%SRC_DIR%" exit /b 7
 if not exist "%PROJECT_DIR%" mkdir "%PROJECT_DIR%"
 
