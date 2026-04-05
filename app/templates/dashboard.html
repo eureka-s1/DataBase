@@ -61,10 +61,50 @@
       padding: 10px 12px;
     }
     .collapsed { display: none; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; font-size: 15px; }
+    table.compact { font-size: 13px; }
     th, td { border-bottom: 1px solid #edf2f8; padding: 7px; text-align: left; }
     th { background: #f8fbff; }
     .small { color: var(--muted); font-size: 12px; }
+    .subnav {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 0 0 10px;
+    }
+    .subnav .sub-btn {
+      border: 1px solid #c6d6e8;
+      background: #f9fcff;
+      color: #36536f;
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .subnav .sub-btn.active {
+      background: #e6f1fb;
+      border-color: #9fc2e1;
+      color: #114f82;
+      font-weight: 600;
+    }
+    .sub-hidden { display: none !important; }
+    .status-pill {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .st-IN_STOCK { color: #0f6f42; background: #e9f7ef; border: 1px solid #bfe5cf; }
+    .st-ALLOCATED { color: #7a5210; background: #fff6e8; border: 1px solid #f0d6a5; }
+    .st-SHIPPED { color: #385066; background: #eef3f8; border: 1px solid #cfdae6; }
+    .st-DRAFT { color: #7a5210; background: #fff6e8; border: 1px solid #f0d6a5; }
+    .st-POSTED { color: #0f6f42; background: #e9f7ef; border: 1px solid #bfe5cf; }
+    .st-VOID { color: #6a5f73; background: #f1eef5; border: 1px solid #d9d1e2; }
+    .st-CONFIRMED { color: #0f6f42; background: #e9f7ef; border: 1px solid #bfe5cf; }
+    .st-REVOKED { color: #a62828; background: #fff0f0; border: 1px solid #efc9c9; }
+    .num-pos { color: #0f6f42; font-weight: 700; }
+    .num-neg { color: #a62828; font-weight: 700; }
     .msg { padding: 10px; border-radius: 8px; margin-bottom: 12px; display: none; }
     .msg.ok { display: block; background: #ecfaf1; border: 1px solid #b8e5ca; color: var(--ok); }
     .msg.err { display: block; background: #fff1f1; border: 1px solid #efc5c5; color: var(--err); }
@@ -76,6 +116,18 @@
     .preview-box { margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #fbfdff; display: none; }
     .preview-box.show { display: block; }
     .preview-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .planner-split > div:first-child {
+      background: #f7fbff;
+      border: 1px solid #d7e6f6;
+      border-radius: 10px;
+      padding: 8px;
+    }
+    .planner-split > div:last-child {
+      background: #fffaf2;
+      border: 1px solid #f1dfbf;
+      border-radius: 10px;
+      padding: 8px;
+    }
     @media (max-width: 920px) {
       .layout { grid-template-columns: 1fr; }
       .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -617,7 +669,7 @@
   </div>
   <div id="doneModal" class="modal-mask">
     <div class="modal-card">
-      <h3 style="margin:0 0 8px;">导入完成</h3>
+      <h3 id="doneModalTitle" style="margin:0 0 8px;">操作完成</h3>
       <div id="doneModalText" class="small"></div>
       <div style="margin-top:10px; display:flex; justify-content:flex-end;">
         <button id="btnDoneModalOk" class="btn primary" type="button">知道了</button>
@@ -715,12 +767,26 @@
       el.innerHTML = head + rows.join('');
     }
 
-    function showDoneModal(text) {
+    function showDoneModal(text, title = '操作完成') {
+      byId('doneModalTitle').textContent = title;
       byId('doneModalText').textContent = text;
       byId('doneModal').classList.add('show');
     }
     function hideDoneModal() {
       byId('doneModal').classList.remove('show');
+    }
+
+    function statusPill(status) {
+      const s = String(status || '').trim();
+      if (!s) return '';
+      return `<span class="status-pill st-${s}">${s}</span>`;
+    }
+
+    function signedText(v) {
+      const x = Number(v || 0);
+      if (x > 0) return `<span class="num-pos">${x.toFixed(2)}</span>`;
+      if (x < 0) return `<span class="num-neg">${x.toFixed(2)}</span>`;
+      return x.toFixed(2);
     }
 
     function renderCustomers() {
@@ -766,7 +832,7 @@
           <td>${i.total_price ?? ''}</td>
           <td>${i.deposit_hint ?? ''}</td>
           <td>${i.cbm_calculated ?? ''}</td>
-          <td>${i.status || ''}</td>
+          <td>${statusPill(i.status)}</td>
           <td>
             <button class="btn btnEditInbound" data-item-id="${i.id}">编辑</button>
             <button class="btn btnDelInbound" data-item-id="${i.id}">撤销</button>
@@ -778,6 +844,7 @@
         ['ID', '批次ID', '入库日期', 'CUSTOMER NAME', 'SHOP NO', '位置', 'ITEM NO', '品名', '材质', 'CTNS', 'QTY', 'PRICE', 'T.PRICE', '定金', 'CBM', '状态', '操作'],
         trs
       );
+      byId('tableInbound').classList.add('compact');
       byId('inboundPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.inboundPage}/${totalPages} 页`;
     }
 
@@ -790,11 +857,11 @@
       const start = (state.containersPage - 1) * pageSize;
       const pageRows = allRows.slice(start, start + pageSize);
       const rows = pageRows.map(c =>
-        `<tr><td>${c.id}</td><td>${c.container_no || ''}</td><td>${c.status || ''}</td><td>${c.used_cbm ?? 0}</td><td>${c.capacity_cbm ?? 0}</td><td>${c.item_count ?? 0}</td></tr>`
+        `<tr><td>${c.id}</td><td>${c.container_no || ''}</td><td>${statusPill(c.status)}</td><td><b>${c.used_cbm ?? 0}</b></td><td>${c.capacity_cbm ?? 0}</td><td>${c.item_count ?? 0}</td></tr>`
       );
       renderTable(document.getElementById('tableContainers'), ['ID', '柜号', '状态', '已用CBM', '容量CBM', '件数'], rows);
       renderTable(document.getElementById('tableContainersMini'), ['柜号', '状态', '已用/容量'], state.containers.slice(0, 10).map(c =>
-        `<tr><td>${c.container_no || ''}</td><td>${c.status || ''}</td><td>${c.used_cbm ?? 0}/${c.capacity_cbm ?? 0}</td></tr>`
+        `<tr><td>${c.container_no || ''}</td><td>${statusPill(c.status)}</td><td><b>${c.used_cbm ?? 0}</b>/${c.capacity_cbm ?? 0}</td></tr>`
       ));
       renderPlannerContainerOptions();
       renderStatementContainerOptions();
@@ -933,11 +1000,11 @@
       const start = (state.ledgerPage - 1) * pageSize;
       const pageRows = allRows.slice(start, start + pageSize);
       const trs = pageRows.map(r =>
-        `<tr><td>${r.customer_id}</td><td>${r.name || ''}</td><td>${(r.aliases || []).join(' / ')}</td><td>${r.total_deposit ?? 0}</td><td>${r.total_freight ?? 0}</td><td>${r.net_balance ?? 0}</td></tr>`
+        `<tr><td>${r.customer_id}</td><td>${r.name || ''}</td><td>${(r.aliases || []).join(' / ')}</td><td>${Number(r.total_deposit ?? 0).toFixed(2)}</td><td>${Number(r.total_freight ?? 0).toFixed(2)}</td><td>${signedText(r.net_balance ?? 0)}</td></tr>`
       );
       renderTable(document.getElementById('tableLedger'), ['客户ID', '客户名', '别名', '总定金', '总运费', '净余额'], trs);
       renderTable(document.getElementById('tableLedgerMini'), ['客户', '定金', '运费', '净余额'], allRows.slice(0, 10).map(r =>
-        `<tr><td>${r.name || ''}</td><td>${r.total_deposit ?? 0}</td><td>${r.total_freight ?? 0}</td><td>${r.net_balance ?? 0}</td></tr>`
+        `<tr><td>${r.name || ''}</td><td>${Number(r.total_deposit ?? 0).toFixed(2)}</td><td>${Number(r.total_freight ?? 0).toFixed(2)}</td><td>${signedText(r.net_balance ?? 0)}</td></tr>`
       ));
       byId('ledgerPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.ledgerPage}/${totalPages} 页`;
     }
@@ -951,7 +1018,7 @@
       const start = (state.statementsPage - 1) * pageSize;
       const pageRows = allRows.slice(start, start + pageSize);
       const rows = pageRows.map(s =>
-        `<tr><td>${s.id}</td><td>${s.statement_no || ''}</td><td>${s.container_no || ''}</td><td>${s.statement_date || ''}</td><td>${s.status || ''}</td><td>${s.created_at || ''}</td></tr>`
+        `<tr><td>${s.id}</td><td>${s.statement_no || ''}</td><td>${s.container_no || ''}</td><td>${s.statement_date || ''}</td><td>${statusPill(s.status)}</td><td>${s.created_at || ''}</td></tr>`
       );
       renderTable(document.getElementById('tableStatements'), ['ID', '结算单号', '柜号', '结算日期', '状态', '创建时间'], rows);
       byId('statementsPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.statementsPage}/${totalPages} 页`;
@@ -969,9 +1036,9 @@
       const trs = pageRows.map(r =>
         `<tr>
           <td>${r.inbound_date || ''}</td>
-          <td>${r.status || ''}</td>
+          <td>${statusPill(r.status)}</td>
           <td>${r.container_no || '-'}</td>
-          <td>${r.container_status || '-'}</td>
+          <td>${r.container_status ? statusPill(r.container_status) : '-'}</td>
           <td>${r.item_no || ''}</td>
           <td>${r.item_name_cn || ''}</td>
           <td>${r.shop_no || ''}</td>
@@ -1100,6 +1167,70 @@
     }
 
     function byId(id) { return document.getElementById(id); }
+
+    function setupSecondaryTabs() {
+      const uniq = (arr) => Array.from(new Set(arr.filter(Boolean)));
+      const cardOf = (id) => {
+        const el = byId(id);
+        return el ? el.closest('.card') : null;
+      };
+      const makeSubnav = (panelId, items) => {
+        const panel = byId(panelId);
+        if (!panel || !items || items.length === 0) return;
+        const host = document.createElement('div');
+        host.className = 'subnav';
+        panel.insertBefore(host, panel.firstElementChild);
+
+        const allCards = uniq(items.flatMap(i => i.cards));
+        const showItem = (idx) => {
+          allCards.forEach(c => c.classList.add('sub-hidden'));
+          items[idx].cards.forEach(c => c.classList.remove('sub-hidden'));
+          Array.from(host.querySelectorAll('.sub-btn')).forEach((b, i) => b.classList.toggle('active', i === idx));
+        };
+
+        items.forEach((it, idx) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'sub-btn' + (idx === 0 ? ' active' : '');
+          b.textContent = it.label;
+          b.onclick = () => showItem(idx);
+          host.appendChild(b);
+        });
+        showItem(0);
+      };
+
+      makeSubnav('panel-query', [
+        { label: '在库与货物', cards: uniq([cardOf('formInboundQuery'), cardOf('tableInbound'), cardOf('formInboundEdit')]) },
+        { label: '总账查询', cards: uniq([cardOf('formLedgerQuery'), cardOf('tableLedger')]) },
+      ]);
+
+      makeSubnav('panel-customer', [
+        { label: '客户档案', cards: uniq([cardOf('formCreateCustomer'), cardOf('tableCustomers')]) },
+        { label: '价格规则', cards: uniq([cardOf('formPriceRule')]) },
+        { label: '客户货物', cards: uniq([cardOf('formCustomerItemsQuery'), cardOf('tableCustomerItems')]) },
+      ]);
+
+      makeSubnav('panel-container', [
+        { label: '拼柜工作台', cards: uniq([cardOf('formPlannerFilters')]) },
+        { label: '柜次管理', cards: uniq([cardOf('formCreateContainer'), cardOf('tableContainers')]) },
+        { label: '柜次明细', cards: uniq([cardOf('formContainerDetails')]) },
+      ]);
+
+      makeSubnav('panel-finance', [
+        { label: '收款与结算', cards: uniq([cardOf('formPayment'), cardOf('formGenerateStatement')]) },
+        { label: '结算列表', cards: uniq([cardOf('tableStatements')]) },
+      ]);
+
+      makeSubnav('panel-io', [
+        { label: '导入', cards: uniq([cardOf('formImportUpload')]) },
+        { label: '导出与备份', cards: uniq([cardOf('formExportDaily')]) },
+      ]);
+    }
+
+    function setupVisualHints() {
+      const plannerGrid = byId('formPlannerFilters')?.closest('.card')?.querySelector('.grid-2');
+      if (plannerGrid) plannerGrid.classList.add('planner-split');
+    }
 
     function setupForms() {
       const bindCollapse = (btnId, wrapId) => {
@@ -1240,6 +1371,7 @@
           const rows = await api(path);
           renderCustomerItems(rows);
           setMsg('客户货物查询完成');
+          showDoneModal(`已查询到 ${rows.length} 条客户货物记录。`, '查询完成');
         } catch (err) { setMsg(err.message, false); }
       };
 
@@ -1272,6 +1404,7 @@
         try {
           await runInboundQuery(true);
           setMsg('查询完成');
+          showDoneModal(`在库查询完成，共 ${state.inboundFiltered.length} 条记录。`, '查询完成');
         } catch (err) { setMsg(err.message, false); }
       };
 
@@ -1287,6 +1420,7 @@
           state.ledger = rows;
           renderLedger(rows);
           setMsg('总账查询完成');
+          showDoneModal(`总账查询完成，共 ${rows.length} 个客户。`, '查询完成');
         } catch (err) { setMsg(err.message, false); }
       };
 
@@ -1305,6 +1439,7 @@
         try {
           await refreshPlannerData();
           setMsg('拼柜货物池已刷新');
+          showDoneModal('拼柜货物池与柜内明细已刷新。', '查询完成');
         } catch (err) { setMsg(err.message, false); }
       };
       byId('plannerContainerId').onchange = async (e) => {
@@ -1373,6 +1508,7 @@
           await refreshSummary();
           await runInboundQuery(false);
           setMsg('组柜完成，货物状态已改为已出柜');
+          showDoneModal(`柜次 ${state.plannerContainerId} 已确认出柜。`, '确认成功');
         } catch (err) { setMsg(err.message, false); }
       };
       byId('btnPlannerRevoke').onclick = async () => {
@@ -1388,6 +1524,7 @@
           await refreshSummary();
           await runInboundQuery(false);
           setMsg('柜次已撤回，货物状态已恢复在库');
+          showDoneModal(`柜次 ${state.plannerContainerId} 已撤回，货物恢复在库。`, '确认成功');
         } catch (err) { setMsg(err.message, false); }
       };
       byId('tablePlannerSelected').onclick = async (e) => {
@@ -1636,6 +1773,7 @@
           await refreshStatements();
           await refreshSummary();
           setMsg('结算单已生成，ID=' + r.statement_id);
+          showDoneModal(`结算单已生成，ID=${r.statement_id}。`, '确认成功');
         } catch (err) { setMsg(err.message, false); }
       };
 
@@ -1647,6 +1785,7 @@
           await refreshStatements();
           await refreshSummary();
           setMsg('结算单已过账');
+          showDoneModal('结算单已过账。', '确认成功');
         } catch (err) { setMsg(err.message, false); }
       };
 
@@ -1658,6 +1797,7 @@
           await refreshStatements();
           await refreshSummary();
           setMsg('结算单已撤销过账');
+          showDoneModal('结算单已撤销过账。', '确认成功');
         } catch (err) { setMsg(err.message, false); }
       };
 
@@ -1768,6 +1908,7 @@
             Number(f.get('limit') || 50),
           );
           setMsg('批次查询完成');
+          showDoneModal(`批次查询完成，共 ${state.importBatches.length} 条。`, '查询完成');
         } catch (err) { setMsg(err.message, false); }
       };
       byId('tableImportBatches').onclick = async (e) => {
@@ -1849,6 +1990,8 @@
     }
 
     setupTabs();
+    setupSecondaryTabs();
+    setupVisualHints();
     setupForms();
     renderCustomers();
     state.inboundFiltered = state.inbound;

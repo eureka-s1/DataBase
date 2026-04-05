@@ -70,7 +70,7 @@ def create_app() -> Flask:
     @app.route('/', methods=['GET'])
     @login_required
     def home():
-        return render_template('index.html', user=session)
+        return redirect(url_for('ui_dashboard'))
 
     @app.route('/login', methods=['GET'])
     def login_page():
@@ -90,7 +90,7 @@ def create_app() -> Flask:
         session['username'] = user['username']
         session['role'] = user['role']
         if request.form:
-            return redirect(url_for('home'))
+            return redirect(url_for('ui_dashboard'))
         return user
 
     @app.route('/logout', methods=['POST'])
