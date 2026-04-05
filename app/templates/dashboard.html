@@ -60,6 +60,17 @@
       color: #36536f;
       line-height: 1;
     }
+    .icon-btn-sm {
+      border: 1px solid #cfd9e5;
+      background: #f8fbff;
+      border-radius: 6px;
+      padding: 2px 4px;
+      font-size: 10px;
+      line-height: 1;
+      cursor: pointer;
+      vertical-align: middle;
+      margin-left: 4px;
+    }
     input.plannerPick { width: 20px; height: 20px; cursor: pointer; }
     .plannerCbmInput { width: 98px; min-width: 0; }
     .usage-kpi {
@@ -503,7 +514,8 @@
         <div class="card">
           <h3>柜次明细（展开查看）</h3>
           <form id="formContainerDetails" class="inline">
-            <label>柜次ID或柜号<input name="container_key" required placeholder="例如 12 或 CAB-20260404-01"></label>
+            <label>柜次ID<input name="container_id" placeholder="例如 12"></label>
+            <label>柜号<input name="container_no" placeholder="例如 CAB-20260404-01"></label>
             <button class="btn primary" type="submit">查看明细</button>
             <button class="btn" id="btnExportContainerExcel" type="button">导出柜单 Excel</button>
             <button class="btn" id="btnExportContainerPdf" type="button">导出柜单 PDF</button>
@@ -1010,7 +1022,7 @@
       const rows = pageRows.map(c =>
         `<tr>
           <td>${c.id}</td>
-          <td>${c.container_no || ''} <button class="btn btnEditContainerNo" data-id="${c.id}" data-no="${(c.container_no || '').replace(/"/g, '&quot;')}" title="修改柜号" type="button">✏️</button></td>
+          <td>${c.container_no || ''} <button class="icon-btn-sm btnEditContainerNo" data-id="${c.id}" data-no="${(c.container_no || '').replace(/"/g, '&quot;')}" title="修改柜号" type="button">✏️</button></td>
           <td>${statusPill(c.status)}</td>
           <td><b>${c.used_cbm ?? 0}</b></td>
           <td>${c.capacity_cbm ?? 0}</td>
@@ -1880,16 +1892,21 @@
       byId('formContainerDetails').onsubmit = async (e) => {
         e.preventDefault();
         const f = new FormData(e.target);
-        const key = String(f.get('container_key') || '').trim();
-        if (!key) {
+        const containerIdRaw = String(f.get('container_id') || '').trim();
+        const containerNoRaw = String(f.get('container_no') || '').trim();
+        if (!containerIdRaw && !containerNoRaw) {
           setMsg('请填写柜次ID或柜号', false);
           return;
         }
         let containerId = '';
-        if (/^\d+$/.test(key)) {
-          containerId = key;
+        if (containerIdRaw) {
+          if (!/^\d+$/.test(containerIdRaw)) {
+            setMsg('柜次ID必须是数字', false);
+            return;
+          }
+          containerId = containerIdRaw;
         } else {
-          const found = state.containers.find(c => String(c.container_no || '').trim().toUpperCase() === key.toUpperCase());
+          const found = state.containers.find(c => String(c.container_no || '').trim().toUpperCase() === containerNoRaw.toUpperCase());
           if (!found) {
             setMsg('未找到对应柜号，请先刷新柜次列表后重试', false);
             return;
