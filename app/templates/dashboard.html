@@ -61,6 +61,7 @@
       line-height: 1;
     }
     input.plannerPick { width: 20px; height: 20px; cursor: pointer; }
+    .plannerCbmInput { width: 98px; min-width: 0; }
     .usage-kpi {
       margin-top: 10px;
       font-size: 24px;
@@ -155,6 +156,14 @@
       border-radius: 10px;
       padding: 8px;
     }
+    #tablePlannerAvailable th, #tablePlannerAvailable td,
+    #tablePlannerSelected th, #tablePlannerSelected td { white-space: nowrap; }
+    #tablePlannerAvailable th:first-child, #tablePlannerAvailable td:first-child {
+      width: 54px;
+      text-align: center;
+      padding-left: 4px;
+      padding-right: 4px;
+    }
     @media (max-width: 920px) {
       .layout { grid-template-columns: 1fr; }
       .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -172,7 +181,7 @@
         <button class="tab-btn active" data-tab="overview">总览</button>
         <button class="tab-btn" data-tab="query">查询</button>
         <button class="tab-btn" data-tab="customer">客户与价格</button>
-        <button class="tab-btn" data-tab="container">拼柜</button>
+        <button class="tab-btn" data-tab="container">货柜管理</button>
         <button class="tab-btn" data-tab="finance">结算</button>
         <button class="tab-btn" data-tab="io">导入导出</button>
         <button class="tab-btn" data-tab="account">账户</button>
@@ -411,7 +420,7 @@
 
       <section class="panel" id="panel-container">
         <div class="card">
-          <h3>拼柜工作台</h3>
+          <h3>货柜管理工作台</h3>
           <form id="formPlannerFilters" class="inline">
             <label>当前柜次
               <select id="plannerContainerId" name="container_id"></select>
@@ -438,6 +447,7 @@
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
                 <div id="plannerAvailablePageInfo" class="small"></div>
                 <div style="display:flex; gap:8px;">
+                  <button class="btn" id="btnPlannerPickPage" type="button">全选本页</button>
                   <button class="btn" id="btnPlannerAvailPrev" type="button">上一页</button>
                   <button class="btn" id="btnPlannerAvailNext" type="button">下一页</button>
                   <button class="btn" id="btnPlannerAvailCollapse" type="button">收起</button>
@@ -460,30 +470,14 @@
           </div>
         </div>
 
-        <div class="grid-2">
-          <div class="card">
-            <h3>新建柜次</h3>
-            <form id="formCreateContainer" class="inline">
-              <label>柜号<input name="container_no" required></label>
-              <label>容量(CBM)<input name="capacity_cbm" type="number" step="0.001" value="68"></label>
-              <label>默认运费(元/68CBM)<input name="default_freight" type="number" step="0.01" value="6100"></label>
-              <button class="btn primary" type="submit">创建柜次</button>
-            </form>
-          </div>
-          <div class="card">
-            <h3>装柜操作</h3>
-            <form id="formAddContainerItem" class="inline">
-              <label>柜次ID<input name="container_id" required></label>
-              <label>货物ID<input name="inbound_item_id" required></label>
-              <label>装柜体积(可空)<input name="cbm_at_load" type="number" step="0.001"></label>
-              <button class="btn primary" type="submit">加入柜次</button>
-            </form>
-            <form id="formRemoveContainerItem" class="inline" style="margin-top:8px;">
-              <label>柜次ID<input name="container_id" required></label>
-              <label>货物ID<input name="inbound_item_id" required></label>
-              <button class="btn" type="submit">移除货物</button>
-            </form>
-          </div>
+        <div class="card">
+          <h3>新建柜次</h3>
+          <form id="formCreateContainer" class="inline">
+            <label>柜号<input name="container_no" required></label>
+            <label>容量(CBM)<input name="capacity_cbm" type="number" step="0.001" value="68"></label>
+            <label>默认运费(元/68CBM)<input name="default_freight" type="number" step="0.01" value="6100"></label>
+            <button class="btn primary" type="submit">创建柜次</button>
+          </form>
         </div>
         <div class="card">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
@@ -509,7 +503,7 @@
         <div class="card">
           <h3>柜次明细（展开查看）</h3>
           <form id="formContainerDetails" class="inline">
-            <label>柜次ID<input name="container_id" required></label>
+            <label>柜次ID或柜号<input name="container_key" required placeholder="例如 12 或 CAB-20260404-01"></label>
             <button class="btn primary" type="submit">查看明细</button>
             <button class="btn" id="btnExportContainerExcel" type="button">导出柜单 Excel</button>
             <button class="btn" id="btnExportContainerPdf" type="button">导出柜单 PDF</button>
@@ -840,6 +834,13 @@
       return x.toFixed(2);
     }
 
+    function formatCbm8(v) {
+      const x = Number(v);
+      if (!Number.isFinite(x)) return '0';
+      const s = x.toFixed(8).replace(/\.?0+$/, '');
+      return s || '0';
+    }
+
     function _pad2(n) { return String(n).padStart(2, '0'); }
 
     function parseDateParts(value) {
@@ -1007,9 +1008,17 @@
       const start = (state.containersPage - 1) * pageSize;
       const pageRows = allRows.slice(start, start + pageSize);
       const rows = pageRows.map(c =>
-        `<tr><td>${c.id}</td><td>${c.container_no || ''}</td><td>${statusPill(c.status)}</td><td><b>${c.used_cbm ?? 0}</b></td><td>${c.capacity_cbm ?? 0}</td><td>${c.item_count ?? 0}</td></tr>`
+        `<tr>
+          <td>${c.id}</td>
+          <td>${c.container_no || ''} <button class="btn btnEditContainerNo" data-id="${c.id}" data-no="${(c.container_no || '').replace(/"/g, '&quot;')}" title="修改柜号" type="button">✏️</button></td>
+          <td>${statusPill(c.status)}</td>
+          <td><b>${c.used_cbm ?? 0}</b></td>
+          <td>${c.capacity_cbm ?? 0}</td>
+          <td>${(Number(c.default_price_per_m3 || 0) * 68).toFixed(2)}</td>
+          <td>${c.item_count ?? 0}</td>
+        </tr>`
       );
-      renderTable(document.getElementById('tableContainers'), ['ID', '柜号', '状态', '已用CBM', '容量CBM', '件数'], rows);
+      renderTable(document.getElementById('tableContainers'), ['ID', '柜号', '状态', '已用CBM', '容量CBM', '运费(元/68CBM)', '件数'], rows);
       renderTable(document.getElementById('tableContainersMini'), ['柜号', '状态', '已用/容量'], state.containers.slice(0, 10).map(c =>
         `<tr><td>${c.container_no || ''}</td><td>${statusPill(c.status)}</td><td><b>${c.used_cbm ?? 0}</b>/${c.capacity_cbm ?? 0}</td></tr>`
       ));
@@ -1104,8 +1113,8 @@
           <td>${r.customer_name || ''}</td>
           <td>${r.item_no || ''}</td>
           <td>${r.item_name_cn || ''}</td>
-          <td>${r.cbm_calculated ?? 0}</td>
-          <td><input class="plannerCbmInput" data-item-id="${r.inbound_item_id}" type="number" step="0.001" value="${r.cbm_at_load ?? 0}"></td>
+          <td>${formatCbm8(r.cbm_calculated ?? 0)}</td>
+          <td><input class="plannerCbmInput" data-item-id="${r.inbound_item_id}" type="number" step="0.00000001" value="${formatCbm8(r.cbm_at_load ?? 0)}"></td>
           <td>
             <button class="btn btnPlannerCbmSave" data-item-id="${r.inbound_item_id}" type="button">更新体积</button>
             <button class="btn btnPlannerRemove" data-item-id="${r.inbound_item_id}" type="button">移除</button>
@@ -1361,7 +1370,7 @@
       ]);
 
       makeSubnav('panel-container', [
-        { label: '拼柜工作台', cards: uniq([cardOf('formPlannerFilters')]) },
+        { label: '货柜工作台', cards: uniq([cardOf('formPlannerFilters')]) },
         { label: '柜次管理', cards: uniq([cardOf('formCreateContainer'), cardOf('tableContainers')]) },
         { label: '柜次明细', cards: uniq([cardOf('formContainerDetails')]) },
       ]);
@@ -1430,6 +1439,21 @@
       byId('btnCustomersNext').onclick = () => { state.customersPage += 1; renderCustomers(); };
       byId('btnContainersPrev').onclick = () => { state.containersPage -= 1; renderContainers(); };
       byId('btnContainersNext').onclick = () => { state.containersPage += 1; renderContainers(); };
+      byId('tableContainers').onclick = async (e) => {
+        const btn = e.target.closest('.btnEditContainerNo');
+        if (!btn) return;
+        const containerId = Number(btn.dataset.id || 0);
+        const oldNo = String(btn.dataset.no || '').trim();
+        if (!containerId) return;
+        const nextNo = (prompt(`请输入新的柜号（当前：${oldNo}）`, oldNo) || '').trim();
+        if (!nextNo || nextNo === oldNo) return;
+        try {
+          await api(`/containers/${containerId}`, 'PUT', { container_no: nextNo });
+          await refreshContainers();
+          setMsg(`柜次 ${containerId} 柜号已更新为 ${nextNo}`);
+          showDoneModal(`柜次 ${containerId} 柜号已更新为 ${nextNo}。`, '确认成功');
+        } catch (err) { setMsg(err.message, false); }
+      };
       byId('btnStatementsPrev').onclick = () => { state.statementsPage -= 1; renderStatements(); };
       byId('btnStatementsNext').onclick = () => { state.statementsPage += 1; renderStatements(); };
       byId('btnCustomerItemsPrev').onclick = () => { state.customerItemsPage -= 1; renderCustomerItems(); };
@@ -1599,8 +1623,8 @@
         state.plannerAvailablePage = 1;
         try {
           await refreshPlannerData();
-          setMsg('拼柜货物池已刷新');
-          showDoneModal('拼柜货物池与柜内明细已刷新。', '查询完成');
+          setMsg('货柜货物池已刷新');
+          showDoneModal('货柜货物池与柜内明细已刷新。', '查询完成');
         } catch (err) { setMsg(err.message, false); }
       };
       byId('plannerContainerId').onchange = async (e) => {
@@ -1629,6 +1653,16 @@
       byId('btnPlannerAvailNext').onclick = () => {
         state.plannerAvailablePage += 1;
         renderPlannerAvailable();
+      };
+      byId('btnPlannerPickPage').onclick = () => {
+        const checks = Array.from(document.querySelectorAll('#tablePlannerAvailable .plannerPick'));
+        if (checks.length === 0) {
+          setMsg('当前页没有可勾选货物', false);
+          return;
+        }
+        const shouldSelect = checks.some(x => !x.checked);
+        checks.forEach(x => { x.checked = shouldSelect; });
+        setMsg(shouldSelect ? `已全选当前页 ${checks.length} 条` : '已取消全选当前页');
       };
       byId('btnPlannerAddSelected').onclick = async () => {
         if (!state.plannerContainerId) {
@@ -1714,13 +1748,14 @@
             setMsg('装柜体积必须大于0', false);
             return;
           }
-          if (!confirm(`确认将货物 ${itemId} 的装柜体积修改为 ${cbm} 吗？`)) return;
+          const cbmRounded = Number(cbm.toFixed(8));
+          if (!confirm(`确认将货物 ${itemId} 的装柜体积修改为 ${formatCbm8(cbmRounded)} 吗？`)) return;
           try {
-            await api(`/containers/${state.plannerContainerId}/items/${itemId}`, 'PUT', { cbm_at_load: cbm });
+            await api(`/containers/${state.plannerContainerId}/items/${itemId}`, 'PUT', { cbm_at_load: cbmRounded });
             await refreshContainers();
             await refreshPlannerData();
-            setMsg(`货物 ${itemId} 装柜体积已更新为 ${cbm}`);
-            showDoneModal(`货物 ${itemId} 装柜体积已更新为 ${cbm}。`);
+            setMsg(`货物 ${itemId} 装柜体积已更新为 ${formatCbm8(cbmRounded)}`);
+            showDoneModal(`货物 ${itemId} 装柜体积已更新为 ${formatCbm8(cbmRounded)}。`);
           } catch (err) { setMsg(err.message, false); }
         }
       };
@@ -1845,10 +1880,21 @@
       byId('formContainerDetails').onsubmit = async (e) => {
         e.preventDefault();
         const f = new FormData(e.target);
-        const containerId = String(f.get('container_id') || '').trim();
-        if (!containerId) {
-          setMsg('请填写柜次ID', false);
+        const key = String(f.get('container_key') || '').trim();
+        if (!key) {
+          setMsg('请填写柜次ID或柜号', false);
           return;
+        }
+        let containerId = '';
+        if (/^\d+$/.test(key)) {
+          containerId = key;
+        } else {
+          const found = state.containers.find(c => String(c.container_no || '').trim().toUpperCase() === key.toUpperCase());
+          if (!found) {
+            setMsg('未找到对应柜号，请先刷新柜次列表后重试', false);
+            return;
+          }
+          containerId = String(found.id);
         }
         state.containerDetailCurrentId = containerId;
         state.containerDetailPage = 1;
@@ -1878,31 +1924,6 @@
           const r = await api(`/exports/container/${Number(state.containerDetailCurrentId)}`, 'POST', { format: 'pdf' });
           byId('ioResult').textContent = JSON.stringify(r, null, 2);
           setMsg('柜单 PDF 导出完成');
-        } catch (err) { setMsg(err.message, false); }
-      };
-
-      byId('formAddContainerItem').onsubmit = async (e) => {
-        e.preventDefault();
-        const f = new FormData(e.target);
-        const containerId = Number(f.get('container_id'));
-        const payload = { inbound_item_id: Number(f.get('inbound_item_id')) };
-        if (String(f.get('cbm_at_load') || '').trim()) payload.cbm_at_load = Number(f.get('cbm_at_load'));
-        try {
-          await api(`/containers/${containerId}/items`, 'POST', payload);
-          await refreshContainers();
-          await refreshSummary();
-          setMsg('货物已加入柜次');
-        } catch (err) { setMsg(err.message, false); }
-      };
-
-      byId('formRemoveContainerItem').onsubmit = async (e) => {
-        e.preventDefault();
-        const f = new FormData(e.target);
-        try {
-          await api(`/containers/${Number(f.get('container_id'))}/items/${Number(f.get('inbound_item_id'))}`, 'DELETE');
-          await refreshContainers();
-          await refreshSummary();
-          setMsg('货物已移除');
         } catch (err) { setMsg(err.message, false); }
       };
 

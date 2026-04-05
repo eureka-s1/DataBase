@@ -20,6 +20,7 @@ from .services.containers import (
     list_containers,
     remove_item_from_container,
     revoke_container,
+    update_container_no,
     update_item_cbm_at_load,
 )
 from .services.customers import create_customer, find_customer_id_by_name, list_customers, merge_customers, resolve_customer_id, upsert_alias
@@ -293,6 +294,14 @@ def create_app() -> Flask:
     def containers_list_api():
         with db_session() as conn:
             return jsonify(list_containers(conn))
+
+    @app.route('/containers/<int:container_id>', methods=['PUT'])
+    @login_required
+    def update_container_api(container_id: int):
+        payload = request.get_json(force=True)
+        with db_session() as conn:
+            update_container_no(conn, container_id, payload.get('container_no', ''))
+        return {'message': 'ok'}
 
     @app.route('/containers/<int:container_id>/usage', methods=['GET'])
     @login_required

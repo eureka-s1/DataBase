@@ -34,6 +34,22 @@ def create_container(conn: Connection, payload: dict, user_id: int) -> int:
     return int(cur.lastrowid)
 
 
+def update_container_no(conn: Connection, container_id: int, container_no: str) -> None:
+    no = (container_no or '').strip()
+    if not no:
+        raise ValueError('container_no is required')
+    row = conn.execute('SELECT id FROM containers WHERE id=?', (container_id,)).fetchone()
+    if not row:
+        raise ValueError('container not found')
+    dup = conn.execute('SELECT id FROM containers WHERE container_no=? AND id!=? LIMIT 1', (no, container_id)).fetchone()
+    if dup:
+        raise ValueError('container_no already exists')
+    conn.execute(
+        'UPDATE containers SET container_no=?, updated_at=? WHERE id=?',
+        (no, now_ts(), container_id),
+    )
+
+
 def container_usage(conn: Connection, container_id: int) -> dict:
     row = conn.execute(
         '''
