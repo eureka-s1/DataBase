@@ -13,6 +13,11 @@
 - `import/import_data.md`：导入测试与规范流程
 - `import/import_run_template.md`：导入执行模板
 
-## 4. 导入测试报告
+## 4. 流程与格式
+- `pipeline.md`：业务主流程（导入 -> 组柜 -> 出仓）
+- `format/daily_receipts_2026data_format_sample.md`：每日收货清单格式采样
+- `format/customer_receipts_2026data_format_sample.md`：客户收货清单（多Sheet）格式采样
+
+## 5. 导入测试报告
 - `reports/import_loop_report.md`：导入循环测试报告
 - `reports/import_anomaly_report.md`：导入异常报告

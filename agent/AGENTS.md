@@ -10,8 +10,10 @@
 4. 更新日志：`/agent/update_log.md`
 
 补充参考：
+- 流程说明：`/agent/pipeline.md`
 - 导入规范：`/agent/import/`
 - 导入报告：`/agent/reports/`
+- 数据格式采样：`/agent/format/`
 - 原始样本：`/2026data/`
 
 ## 3. 开发原则（必须遵守）
