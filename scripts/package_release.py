@@ -22,11 +22,11 @@ EXCLUDE_DIRS = {
 EXCLUDE_SUFFIXES = {".pyc", ".pyo"}
 
 
-def should_skip(path: Path, include_2025data: bool) -> bool:
+def should_skip(path: Path, include_2026data: bool) -> bool:
     parts = set(path.parts)
     if parts & EXCLUDE_DIRS:
         return True
-    if not include_2025data and "2025data" in parts:
+    if not include_2026data and "2026data" in parts:
         return True
     if path.suffix.lower() in EXCLUDE_SUFFIXES:
         return True
@@ -68,7 +68,7 @@ def build_release_note() -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Package project into a shareable ZIP release.")
     parser.add_argument("--name", help="Release file base name (without .zip)")
-    parser.add_argument("--include-2025data", action="store_true", help="Include 2025data directory")
+    parser.add_argument("--include-2026data", action="store_true", help="Include 2026data directory")
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[1]
@@ -85,7 +85,7 @@ def main() -> None:
         if not p.is_file():
             continue
         rel = p.relative_to(root)
-        if should_skip(rel, include_2025data=args.include_2025data):
+        if should_skip(rel, include_2026data=args.include_2026data):
             continue
         files.append(p)
 
@@ -105,8 +105,8 @@ def main() -> None:
     print(f"release zip: {zip_path}")
     print(f"sha256: {sha_path}")
     print(f"files packed: {len(files)}")
-    if not args.include_2025data:
-        print("2025data excluded by default (use --include-2025data to include).")
+    if not args.include_2026data:
+        print("2026data excluded by default (use --include-2026data to include).")
 
 
 if __name__ == "__main__":

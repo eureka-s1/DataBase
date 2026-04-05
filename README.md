@@ -45,7 +45,7 @@ python scripts/package_release.py
 ```
 
 可选参数：
-- `--include-2025data`：把 `2025data` 一并打包（默认不包含，避免包太大）
+- `--include-2026data`：把 `2026data` 一并打包（默认不包含，避免包太大）
 - `--name 自定义名称`：自定义压缩包名称
 
 ## 功能完成状态

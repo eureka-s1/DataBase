@@ -52,7 +52,7 @@ def _ensure_receipt_file(path: Path) -> None:
 def _default_customer_from_path(path: Path) -> str:
     parts = path.parts
     for i, p in enumerate(parts):
-        if p == '2025data' and i + 1 < len(parts):
+        if p == '2026data' and i + 1 < len(parts):
             return str(parts[i + 1]).strip()
     return path.parent.name.strip()
 

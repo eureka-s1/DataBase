@@ -70,7 +70,7 @@
   - 新增导入规范文档：`agent/import_data.md`。
   - 新增导入执行模板：`agent/import_run_template.md`。
   - 新增导入体检与报告：`agent/import_loop_report.md`。
-  - 新增脚本：`scripts/bootstrap_customers_from_data.py`（按 `2025data` 目录预置客户与别名）。
+  - 新增脚本：`scripts/bootstrap_customers_from_data.py`（按 `2026data` 目录预置客户与别名）。
   - 新增脚本：`scripts/run_import_loop.py`（批量执行 `preview -> dry-run -> commit` 并生成报告）。
   - 迭代 `app/services/importer.py`：
     - 扩展真实模板表头映射（含 `ITEM NAME/CNS/DEPOZIT` 等变体）。
@@ -86,13 +86,13 @@
   - 执行第 3 轮：`limit=600, commit-files=60`，达成 `parse_fail=0`、`dry_run failed_rows=0`。
   - 执行第 4 轮（全量）：`limit=0, commit-files=100`。
   - 全量结果：候选文件 `612`，解析成功 `611`，解析失败 `1`，`dry-run failed_rows=0`，正式导入 `100` 个文件。
-  - 修复多级目录客户回退策略：默认客户名优先取 `2025data` 下一级目录，避免 `2025 11/2025 12` 等子目录名误映射。
+  - 修复多级目录客户回退策略：默认客户名优先取 `2026data` 下一级目录，避免 `2025 11/2025 12` 等子目录名误映射。
 - 更新原因：将导入能力从小批样本推进到全量候选验证，并识别剩余极少量异常文件供后续专项处理。
 
 ### 10. 全量 612/612 导入测试闭环
 - 时间：2026-04-04
 - 更新内容：
-  - 针对专项失败文件 `2025data/胡订货/2-18 EKENE .1.xlsx` 追加订货单模板兼容：
+  - 针对专项失败文件 `2026data/胡订货/2-18 EKENE .1.xlsx` 追加订货单模板兼容：
     - 增加表头映射 `DESCRIPTION/DESCRPETION`。
     - 表头检测允许 `item_no` 作为可导入主字段（无 `item_name_cn` 时回退）。
   - 复跑全量 loop（`limit=0, commit-files=100`）结果：

@@ -131,7 +131,7 @@ def write_report(report_path: Path, results: list[LoopResult], inbound_date: str
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Run import-test loop on inbound-like files.")
-    p.add_argument("--data-dir", type=Path, default=ROOT / "2025data")
+    p.add_argument("--data-dir", type=Path, default=ROOT / "2026data")
     p.add_argument("--inbound-date", default="2026-04-04")
     p.add_argument("--limit", type=int, default=120)
     p.add_argument("--commit-files", type=int, default=10)
