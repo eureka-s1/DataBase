@@ -71,7 +71,15 @@
       vertical-align: middle;
       margin-left: 4px;
     }
-    input.plannerPick { width: 20px; height: 20px; cursor: pointer; }
+    input.plannerPick {
+      width: 20px;
+      height: 20px;
+      min-width: 0;
+      padding: 0;
+      margin: 0;
+      cursor: pointer;
+      vertical-align: middle;
+    }
     .plannerCbmInput { width: 98px; min-width: 0; }
     .usage-kpi {
       margin-top: 10px;
@@ -189,10 +197,9 @@
     #tablePlannerAvailable th:nth-child(3), #tablePlannerAvailable td:nth-child(3) { width: 102px; }
     #tablePlannerAvailable th:nth-child(4), #tablePlannerAvailable td:nth-child(4) { width: 110px; }
     #tablePlannerAvailable th:nth-child(5), #tablePlannerAvailable td:nth-child(5) { width: 92px; }
-    #tablePlannerAvailable th:nth-child(6), #tablePlannerAvailable td:nth-child(6) { width: 92px; }
-    #tablePlannerAvailable th:nth-child(7), #tablePlannerAvailable td:nth-child(7) { width: 124px; }
-    #tablePlannerAvailable th:nth-child(8), #tablePlannerAvailable td:nth-child(8) { width: 84px; }
-    #tablePlannerAvailable th:nth-child(9), #tablePlannerAvailable td:nth-child(9) { width: 80px; }
+    #tablePlannerAvailable th:nth-child(6), #tablePlannerAvailable td:nth-child(6) { width: 124px; }
+    #tablePlannerAvailable th:nth-child(7), #tablePlannerAvailable td:nth-child(7) { width: 84px; }
+    #tablePlannerAvailable th:nth-child(8), #tablePlannerAvailable td:nth-child(8) { width: 80px; }
     #plannerAvailableWrap { overflow-x: auto; }
     @media (max-width: 920px) {
       .layout { grid-template-columns: 1fr; }
@@ -704,11 +711,15 @@
               <label>货柜
                 <select id="exportStatementContainerId" name="container_id" required></select>
               </label>
+              <label>或柜次ID<input name="container_id_input" placeholder="例如 12"></label>
               <label>格式<select name="format"><option value="xlsx">xlsx</option><option value="pdf">pdf</option></select></label>
               <button class="btn" type="submit">导出账单</button>
             </form>
             <form id="formExportContainer" class="inline" style="margin-top:8px;">
-              <label>柜次ID<input name="container_id" required></label>
+              <label>货柜
+                <select id="exportContainerId" name="container_id"></select>
+              </label>
+              <label>或柜次ID<input name="container_id_input" placeholder="例如 12"></label>
               <label>格式<select name="format"><option value="xlsx">xlsx</option><option value="pdf">pdf</option></select></label>
               <button class="btn" type="submit">导出柜单</button>
             </form>
@@ -1170,6 +1181,24 @@
         exportEl.innerHTML = options.join('');
         if (current) exportEl.value = current;
       }
+
+      const exportContainerEl = byId('exportContainerId');
+      if (exportContainerEl) {
+        const current = exportContainerEl.value;
+        const options = ['<option value="">请选择货柜</option>'].concat(
+          state.containers.map(c => `<option value="${c.id}">${c.id} - ${c.container_no || ''} (${c.status_display || c.status || ''})</option>`)
+        );
+        exportContainerEl.innerHTML = options.join('');
+        if (current) exportContainerEl.value = current;
+      }
+    }
+
+    function formatMonthDayDisplay(v) {
+      const iso = normalizeDateForSubmit(v);
+      if (!iso) return '';
+      const p = iso.split('-');
+      if (p.length !== 3) return '';
+      return `${p[1]}-${p[2]}`;
     }
 
     function renderPlannerAvailable() {
@@ -1211,16 +1240,15 @@
         return `<tr>
           <td>${pickCell}</td>
           <td>${r.id}</td>
-          <td>${formatDateDisplay(r.inbound_date)}</td>
+          <td>${formatMonthDayDisplay(r.inbound_date)}</td>
           <td>${textCell(r.customer_name, 16)}</td>
           <td>${textCell(r.shop_no, 16)}</td>
-          <td>${textCell(r.item_no, 20)}</td>
           <td>${textCell(r.item_name_cn, 24)}</td>
           <td>${r.cbm_calculated ?? 0}</td>
           <td>${textCell(r.status, 10)}</td>
         </tr>`;
       });
-      renderTable(byId('tablePlannerAvailable'), ['选择', '货物ID', '入库日期', '客户', 'SHOP NO', 'ITEM NO', '品名', 'CBM', '状态'], trs);
+      renderTable(byId('tablePlannerAvailable'), ['选择', '货物ID', '入库日期', '客户', 'SHOP NO', '品名', 'CBM', '状态'], trs);
     }
 
     function renderPlannerSelected() {
@@ -1234,9 +1262,8 @@
       const trs = pageRows.map(r => `
         <tr>
           <td>${r.inbound_item_id}</td>
-          <td>${formatDateDisplay(r.inbound_date)}</td>
+          <td>${formatMonthDayDisplay(r.inbound_date)}</td>
           <td>${r.customer_name || ''}</td>
-          <td>${r.item_no || ''}</td>
           <td>${r.item_name_cn || ''}</td>
           <td>${formatCbm8(r.cbm_calculated ?? 0)}</td>
           <td><input class="plannerCbmInput" data-item-id="${r.inbound_item_id}" type="number" step="0.00000001" value="${formatCbm8(r.cbm_at_load ?? 0)}"></td>
@@ -1246,7 +1273,7 @@
           </td>
         </tr>
       `);
-      renderTable(byId('tablePlannerSelected'), ['货物ID', '入库日期', '客户', 'ITEM NO', '品名', '原CBM', '装柜CBM', '操作'], trs);
+      renderTable(byId('tablePlannerSelected'), ['货物ID', '入库日期', '客户', '品名', '原CBM', '装柜CBM', '操作'], trs);
       byId('plannerSelectedPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.plannerSelectedPage}/${totalPages} 页`;
     }
 
@@ -2315,9 +2342,10 @@
       byId('formExportStatement').onsubmit = async (e) => {
         e.preventDefault();
         const f = new FormData(e.target);
-        const containerId = Number(f.get('container_id'));
+        const containerIdInput = String(f.get('container_id_input') || '').trim();
+        const containerId = Number(containerIdInput || f.get('container_id'));
         if (!containerId) {
-          setMsg('请选择要导出的货柜', false);
+          setMsg('请选择货柜或输入柜次ID', false);
           return;
         }
         try {
@@ -2329,8 +2357,14 @@
       byId('formExportContainer').onsubmit = async (e) => {
         e.preventDefault();
         const f = new FormData(e.target);
+        const containerIdInput = String(f.get('container_id_input') || '').trim();
+        const containerId = Number(containerIdInput || f.get('container_id'));
+        if (!containerId) {
+          setMsg('请选择货柜或输入柜次ID', false);
+          return;
+        }
         try {
-          const r = await api(`/exports/container/${Number(f.get('container_id'))}`, 'POST', { format: f.get('format') });
+          const r = await api(`/exports/container/${containerId}`, 'POST', { format: f.get('format') });
           byId('ioResult').textContent = JSON.stringify(r, null, 2);
           setMsg('柜单导出完成');
         } catch (err) { setMsg(err.message, false); }
