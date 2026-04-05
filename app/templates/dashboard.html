@@ -49,6 +49,17 @@
       border: 1px solid #c8d4e3; border-radius: 8px; padding: 7px 8px; min-width: 120px;
       font-size: 14px; background: #fff;
     }
+    .date-wrap { display: inline-flex; align-items: center; gap: 6px; }
+    .date-btn {
+      border: 1px solid #c8d4e3;
+      background: #f8fbff;
+      border-radius: 8px;
+      padding: 7px 9px;
+      cursor: pointer;
+      font-size: 12px;
+      color: #36536f;
+      line-height: 1;
+    }
     input.plannerPick { width: 20px; height: 20px; cursor: pointer; }
     .usage-kpi {
       margin-top: 10px;
@@ -204,7 +215,7 @@
         <div class="card">
           <h3>在库查询</h3>
           <form id="formInboundQuery" class="inline">
-            <label>入库日期<input type="date" name="inbound_date"></label>
+            <label>入库日期<input type="text" class="date-iso" name="inbound_date" placeholder="YYYY-MM-DD"></label>
             <label>批次ID<input name="batch_id" placeholder="例如 12"></label>
             <label>只看在库<select name="only_in_stock"><option value="1">是</option><option value="0">否</option></select></label>
             <label>关键字<input name="keyword" placeholder="单号/客户/品名"></label>
@@ -234,7 +245,7 @@
             <label>货物ID<input name="item_id" required></label>
             <label>客户ID<input name="customer_id" placeholder="可空"></label>
             <label>客户名<input name="customer_name" placeholder="可空，自动解析"></label>
-            <label>入库日期<input type="date" name="inbound_date"></label>
+            <label>入库日期<input type="text" class="date-iso" name="inbound_date" placeholder="YYYY-MM-DD"></label>
             <label>SHOP NO<input name="shop_no"></label>
             <label>位置<input name="position_or_tel"></label>
             <label>ITEM NO<input name="item_no"></label>
@@ -320,8 +331,8 @@
             <h3>价格规则</h3>
             <form id="formPriceRule" class="inline">
               <label>客户ID<input name="customer_id" required></label>
-              <label>生效起<input type="date" name="effective_from" required></label>
-              <label>生效止<input type="date" name="effective_to"></label>
+              <label>生效起<input type="text" class="date-iso" name="effective_from" placeholder="YYYY-MM-DD" required></label>
+              <label>生效止<input type="text" class="date-iso" name="effective_to" placeholder="YYYY-MM-DD"></label>
               <label>单价<input name="price_per_m3" type="number" step="0.01" required></label>
               <button class="btn primary" type="submit">保存价格</button>
             </form>
@@ -530,7 +541,7 @@
             <form id="formPayment" class="inline">
               <label>收款单号<input name="payment_no" required></label>
               <label>客户ID<input name="customer_id" required></label>
-              <label>收款日期<input type="date" name="payment_date"></label>
+              <label>收款日期<input type="text" class="date-iso" name="payment_date" placeholder="YYYY-MM-DD"></label>
               <label>金额<input type="number" step="0.01" name="amount" required></label>
               <label>方式
                 <select name="method">
@@ -549,7 +560,7 @@
               <label>选择货柜
                 <select id="statementContainerId" name="container_id" required></select>
               </label>
-              <label>结算日期<input type="date" name="statement_date"></label>
+              <label>结算日期<input type="text" class="date-iso" name="statement_date" placeholder="YYYY-MM-DD"></label>
               <label>结算单号(可空)<input name="statement_no"></label>
               <button class="btn primary" type="submit">生成结算单</button>
             </form>
@@ -614,7 +625,7 @@
             <div class="sec-title">2) 执行导入</div>
             <form id="formImportExecute" class="inline" style="margin-top:8px;">
               <input id="importFilePathExec" name="file_path" type="hidden" required>
-              <label>入库日期（可空则默认今天）<input id="importInboundDate" name="inbound_date" type="date"></label>
+              <label>入库日期（可空则默认今天）<input id="importInboundDate" class="date-iso" name="inbound_date" type="text" placeholder="YYYY-MM-DD"></label>
               <button class="btn" id="btnFillToday" type="button">填充今天</button>
               <label>仅演练
                 <select name="dry_run"><option value="0">否（默认）</option><option value="1">是</option></select>
@@ -629,7 +640,7 @@
               </form>
               <form id="formImportBatchQuery" class="inline">
                 <label>批次ID（可空）<input name="batch_id" placeholder="例如 12"></label>
-                <label>入库日期（可空）<input type="date" name="inbound_date"></label>
+                <label>入库日期（可空）<input type="text" class="date-iso" name="inbound_date" placeholder="YYYY-MM-DD"></label>
                 <label>最近条数
                   <select name="limit">
                     <option value="20">20</option>
@@ -653,7 +664,7 @@
           <div class="card">
             <h3>导出与备份</h3>
             <form id="formExportDaily" class="inline">
-              <label>日期<input type="date" name="inbound_date" required></label>
+              <label>日期<input type="text" class="date-iso" name="inbound_date" placeholder="YYYY-MM-DD" required></label>
               <button class="btn" type="submit">导出日入库</button>
             </form>
             <form id="formExportStatement" class="inline" style="margin-top:8px;">
@@ -829,6 +840,105 @@
       return x.toFixed(2);
     }
 
+    function _pad2(n) { return String(n).padStart(2, '0'); }
+
+    function parseDateParts(value) {
+      const raw = String(value || '').trim();
+      if (!raw) return null;
+      const m = raw.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})(?:\D+(\d{1,2})\D+(\d{1,2})(?:\D+(\d{1,2}))?)?/);
+      if (!m) return null;
+      const y = Number(m[1]);
+      const mo = Number(m[2]);
+      const d = Number(m[3]);
+      if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+      if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+      const hh = m[4] ? Number(m[4]) : null;
+      const mm = m[5] ? Number(m[5]) : null;
+      const ss = m[6] ? Number(m[6]) : null;
+      return { y, mo, d, hh, mm, ss };
+    }
+
+    function formatDateDisplay(value, withTime = false) {
+      const p = parseDateParts(value);
+      if (!p) return String(value || '');
+      const date = `${p.y}-${_pad2(p.mo)}-${_pad2(p.d)}`;
+      if (!withTime || p.hh === null || p.mm === null) return date;
+      const sec = p.ss === null ? '00' : _pad2(p.ss);
+      return `${date} ${_pad2(p.hh)}:${_pad2(p.mm)}:${sec}`;
+    }
+
+    function formatDateInputValue(value) {
+      const p = parseDateParts(value);
+      if (!p) return '';
+      return `${p.y}-${_pad2(p.mo)}-${_pad2(p.d)}`;
+    }
+
+    function dateSortKey(value) {
+      const p = parseDateParts(value);
+      if (!p) return String(value || '');
+      return `${p.y}${_pad2(p.mo)}${_pad2(p.d)}`;
+    }
+
+    function normalizeDateForSubmit(value) {
+      const s = String(value || '').trim();
+      if (!s) return '';
+      return formatDateInputValue(s) || s;
+    }
+
+    function normalizeDateInputsInForm(formEl) {
+      if (!formEl) return;
+      const els = formEl.querySelectorAll('input.date-iso');
+      els.forEach((el) => {
+        el.value = normalizeDateForSubmit(el.value);
+      });
+    }
+
+    function enhanceDateInputsWithCalendar() {
+      const inputs = document.querySelectorAll('input.date-iso');
+      inputs.forEach((el) => {
+        if (el.dataset.calendarEnhanced === '1') return;
+        el.dataset.calendarEnhanced = '1';
+
+        const wrap = document.createElement('span');
+        wrap.className = 'date-wrap';
+        el.parentNode.insertBefore(wrap, el);
+        wrap.appendChild(el);
+
+        const native = document.createElement('input');
+        native.type = 'date';
+        native.tabIndex = -1;
+        native.setAttribute('aria-hidden', 'true');
+        native.style.position = 'absolute';
+        native.style.opacity = '0';
+        native.style.width = '1px';
+        native.style.height = '1px';
+        native.style.pointerEvents = 'none';
+        wrap.appendChild(native);
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'date-btn';
+        btn.textContent = '📅';
+        btn.title = '打开日历';
+        btn.onclick = () => {
+          native.value = normalizeDateForSubmit(el.value);
+          if (typeof native.showPicker === 'function') {
+            native.showPicker();
+          } else {
+            native.style.pointerEvents = 'auto';
+            native.focus();
+            native.click();
+            setTimeout(() => { native.style.pointerEvents = 'none'; }, 200);
+          }
+        };
+        wrap.appendChild(btn);
+
+        native.addEventListener('change', () => {
+          if (native.value) el.value = native.value;
+        });
+      });
+    }
+
     function renderCustomers() {
       const allRows = state.customers.slice();
       const pageSize = Number(state.customersPageSize || 50);
@@ -859,7 +969,7 @@
         `<tr>
           <td>${i.id ?? ''}</td>
           <td>${i.import_batch_id ?? ''}</td>
-          <td>${i.inbound_date || ''}</td>
+          <td>${formatDateDisplay(i.inbound_date)}</td>
           <td>${i.customer_name || ''}</td>
           <td>${i.shop_no || ''}</td>
           <td>${i.position_or_tel || ''}</td>
@@ -948,9 +1058,9 @@
         rows = rows.filter(r => String(r.status || '') !== 'ALLOCATED');
       }
       if (state.plannerSortBy === 'date') {
-        rows.sort((a, b) => String(a.inbound_date || '').localeCompare(String(b.inbound_date || '')) || String(a.customer_name || '').localeCompare(String(b.customer_name || '')));
+        rows.sort((a, b) => dateSortKey(a.inbound_date).localeCompare(dateSortKey(b.inbound_date)) || String(a.customer_name || '').localeCompare(String(b.customer_name || '')));
       } else {
-        rows.sort((a, b) => String(a.customer_name || '').localeCompare(String(b.customer_name || '')) || String(a.inbound_date || '').localeCompare(String(b.inbound_date || '')));
+        rows.sort((a, b) => String(a.customer_name || '').localeCompare(String(b.customer_name || '')) || dateSortKey(a.inbound_date).localeCompare(dateSortKey(b.inbound_date)));
       }
       const pageSize = Number(state.plannerAvailablePageSize || 30);
       const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
@@ -967,7 +1077,7 @@
         return `<tr>
           <td>${pickCell}</td>
           <td>${r.id}</td>
-          <td>${r.inbound_date || ''}</td>
+          <td>${formatDateDisplay(r.inbound_date)}</td>
           <td>${r.customer_name || ''}</td>
           <td>${r.shop_no || ''}</td>
           <td>${r.item_no || ''}</td>
@@ -990,7 +1100,7 @@
       const trs = pageRows.map(r => `
         <tr>
           <td>${r.inbound_item_id}</td>
-          <td>${r.inbound_date || ''}</td>
+          <td>${formatDateDisplay(r.inbound_date)}</td>
           <td>${r.customer_name || ''}</td>
           <td>${r.item_no || ''}</td>
           <td>${r.item_name_cn || ''}</td>
@@ -1058,7 +1168,7 @@
       const start = (state.statementsPage - 1) * pageSize;
       const pageRows = allRows.slice(start, start + pageSize);
       const rows = pageRows.map(s =>
-        `<tr><td>${s.id}</td><td>${s.statement_no || ''}</td><td>${s.container_no || ''}</td><td>${s.statement_date || ''}</td><td>${statusPill(s.status)}</td><td>${s.created_at || ''}</td></tr>`
+        `<tr><td>${s.id}</td><td>${s.statement_no || ''}</td><td>${s.container_no || ''}</td><td>${formatDateDisplay(s.statement_date)}</td><td>${statusPill(s.status)}</td><td>${formatDateDisplay(s.created_at, true)}</td></tr>`
       );
       renderTable(document.getElementById('tableStatements'), ['ID', '结算单号', '柜号', '结算日期', '状态', '创建时间'], rows);
       byId('statementsPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.statementsPage}/${totalPages} 页`;
@@ -1075,7 +1185,7 @@
       const pageRows = allRows.slice(start, start + pageSize);
       const trs = pageRows.map(r =>
         `<tr>
-          <td>${r.inbound_date || ''}</td>
+          <td>${formatDateDisplay(r.inbound_date)}</td>
           <td>${statusPill(r.status)}</td>
           <td>${r.container_no || '-'}</td>
           <td>${r.container_status ? statusPill(r.container_status) : '-'}</td>
@@ -1114,7 +1224,7 @@
       const start = (state.containerDetailPage - 1) * pageSize;
       const pageRows = allRows.slice(start, start + pageSize);
       const trs = pageRows.map(r =>
-        `<tr><td>${r.customer_name || ''}</td><td>${r.inbound_date || ''}</td><td>${r.item_no || ''}</td><td>${r.item_name_cn || ''}</td><td>${r.shop_no || ''}</td><td>${r.cbm_at_load ?? 0}</td><td>${r.freight_amount ?? 0}</td></tr>`
+        `<tr><td>${r.customer_name || ''}</td><td>${formatDateDisplay(r.inbound_date)}</td><td>${r.item_no || ''}</td><td>${r.item_name_cn || ''}</td><td>${r.shop_no || ''}</td><td>${r.cbm_at_load ?? 0}</td><td>${r.freight_amount ?? 0}</td></tr>`
       );
       renderTable(byId('tableContainerDetailItems'), ['客户', '入库日期', 'ITEM NO', '品名', 'SHOP NO', '装柜CBM', '金额'], trs);
       byId('containerDetailPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.containerDetailPage}/${totalPages} 页`;
@@ -1159,10 +1269,10 @@
         `<tr>
           <td>${b.batch_id}</td>
           <td>${b.batch_no || ''}</td>
-          <td>${b.inbound_date || ''}</td>
+          <td>${formatDateDisplay(b.inbound_date)}</td>
           <td>${b.success_rows ?? 0}/${b.total_rows ?? 0}（撤回 ${b.revoked_rows ?? 0}）</td>
           <td>${b.in_stock_items ?? 0}</td>
-          <td>${b.created_at || ''}</td>
+          <td>${formatDateDisplay(b.created_at, true)}</td>
           <td><button class="btn btnRollbackBatch" data-batch-id="${b.batch_id}">撤销此批</button></td>
         </tr>`
       );
@@ -1273,6 +1383,17 @@
     }
 
     function setupForms() {
+      enhanceDateInputsWithCalendar();
+      document.addEventListener('submit', (e) => {
+        const form = e.target && e.target.tagName === 'FORM' ? e.target : null;
+        if (form) normalizeDateInputsInForm(form);
+      }, true);
+      document.querySelectorAll('input.date-iso').forEach((el) => {
+        el.addEventListener('blur', () => {
+          el.value = normalizeDateForSubmit(el.value);
+        });
+      });
+
       const bindCollapse = (btnId, wrapId) => {
         byId(btnId).onclick = () => {
           const wrap = byId(wrapId);
@@ -1613,7 +1734,7 @@
           form.item_id.value = row.id ?? '';
           form.customer_id.value = row.customer_id ?? '';
           form.customer_name.value = row.customer_name || '';
-          form.inbound_date.value = row.inbound_date || '';
+          form.inbound_date.value = formatDateInputValue(row.inbound_date);
           form.shop_no.value = row.shop_no || '';
           form.position_or_tel.value = row.position_or_tel || '';
           form.item_no.value = row.item_no || '';
@@ -1905,21 +2026,21 @@
           });
           byId('ioResult').textContent = JSON.stringify(r, null, 2);
           if (f.get('dry_run') === '1') {
-            setMsg(`导入演练完成：日期 ${r.inbound_date_used}，总计 ${r.total_rows}，通过 ${r.success_rows}，失败 ${r.failed_rows}，待新建客户 ${r.auto_created_customer_count || 0}`);
+            setMsg(`导入演练完成：日期 ${formatDateDisplay(r.inbound_date_used)}，总计 ${r.total_rows}，通过 ${r.success_rows}，失败 ${r.failed_rows}，待新建客户 ${r.auto_created_customer_count || 0}`);
             await refreshImportBatches('', '', 50);
             await refreshSummary();
             clearImportSelection();
             showDoneModal(`导入演练完成，共 ${r.success_rows}/${r.total_rows} 条通过。`, '执行完成');
           } else {
             await refreshCustomers();
-            state.inboundQuery.inbound_date = String(r.inbound_date_used || '').trim();
+            state.inboundQuery.inbound_date = formatDateInputValue(r.inbound_date_used);
             state.inboundQuery.only_in_stock = '1';
             await runInboundQuery(true);
             await refreshSummary();
             await refreshImportBatches('', '', 50);
-            setMsg(`导入完成：日期 ${r.inbound_date_used}，成功入库 ${r.success_rows}，失败 ${r.failed_rows}，自动新建客户 ${r.auto_created_customer_count || 0}`);
+            setMsg(`导入完成：日期 ${formatDateDisplay(r.inbound_date_used)}，成功入库 ${r.success_rows}，失败 ${r.failed_rows}，自动新建客户 ${r.auto_created_customer_count || 0}`);
             clearImportSelection();
-            showDoneModal(`批次ID: ${r.batch_id}；入库日期: ${r.inbound_date_used}；成功入库: ${r.success_rows} 条；失败: ${r.failed_rows} 条；新建客户: ${r.auto_created_customer_count || 0}。`, '执行完成');
+            showDoneModal(`批次ID: ${r.batch_id}；入库日期: ${formatDateDisplay(r.inbound_date_used)}；成功入库: ${r.success_rows} 条；失败: ${r.failed_rows} 条；新建客户: ${r.auto_created_customer_count || 0}。`, '执行完成');
           }
         } catch (err) { setMsg(err.message, false); }
       };
