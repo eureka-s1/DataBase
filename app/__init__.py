@@ -20,6 +20,7 @@ from .services.containers import (
     list_containers,
     remove_item_from_container,
     revoke_container,
+    split_inbound_item_by_cartons,
     update_container_no,
     update_item_cbm_at_load,
 )
@@ -360,6 +361,15 @@ def create_app() -> Flask:
             update_item_cbm_at_load(conn, container_id, item_id, cbm_at_load)
             usage = container_usage(conn, container_id)
         return {'message': 'ok', 'usage': usage}
+
+    @app.route('/inbound-items/<int:item_id>/split-by-cartons', methods=['POST'])
+    @login_required
+    def split_inbound_item_api(item_id: int):
+        payload = request.get_json(force=True)
+        split_cartons = int(payload.get('split_cartons', 0))
+        with db_session() as conn:
+            result = split_inbound_item_by_cartons(conn, item_id, split_cartons)
+        return result
 
     @app.route('/containers/<int:container_id>/confirm', methods=['POST'])
     @login_required

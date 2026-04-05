@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlite3 import Connection
 
-from .common import now_ts, to_float
+from .common import now_ts, to_float, to_int
 
 
 def create_container(conn: Connection, payload: dict, user_id: int) -> int:
@@ -109,6 +109,129 @@ def add_item_to_container(conn: Connection, container_id: int, inbound_item_id: 
         "UPDATE inbound_items SET status='ALLOCATED', container_id=?, updated_at=? WHERE id=?",
         (container_id, ts, inbound_item_id),
     )
+
+
+def _next_split_inbound_no(conn: Connection, base_no: str) -> str:
+    i = 1
+    while True:
+        cand = f'{base_no}-S{i}'
+        hit = conn.execute('SELECT 1 FROM inbound_items WHERE inbound_no=? LIMIT 1', (cand,)).fetchone()
+        if not hit:
+            return cand
+        i += 1
+
+
+def _split_float_keep_total(total: float, ratio: float, digits: int) -> tuple[float, float]:
+    part = round(float(total) * ratio, digits)
+    keep = round(float(total) - part, digits)
+    return keep, part
+
+
+def _split_int_keep_total(total: int, ratio: float) -> tuple[int, int]:
+    part = int(round(float(total) * ratio))
+    part = max(0, min(int(total), part))
+    keep = int(total) - part
+    return keep, part
+
+
+def split_inbound_item_by_cartons(conn: Connection, inbound_item_id: int, split_cartons: int) -> dict:
+    row = conn.execute(
+        '''
+        SELECT *
+        FROM inbound_items
+        WHERE id=?
+        ''',
+        (inbound_item_id,),
+    ).fetchone()
+    if not row:
+        raise ValueError('inbound item not found')
+    if row['status'] != 'IN_STOCK':
+        raise ValueError('only IN_STOCK item can be split')
+    if row['container_id'] is not None:
+        raise ValueError('allocated item cannot be split')
+
+    total_cartons = to_int(row['carton_count'], 0)
+    split_cartons = to_int(split_cartons, 0)
+    if total_cartons <= 1:
+        raise ValueError('carton_count must be > 1 to split')
+    if split_cartons <= 0 or split_cartons >= total_cartons:
+        raise ValueError(f'split_cartons must be between 1 and {total_cartons - 1}')
+
+    ratio = float(split_cartons) / float(total_cartons)
+
+    qty_keep, qty_split = _split_int_keep_total(to_int(row['qty'], 0), ratio)
+    unit_keep, unit_split = _split_float_keep_total(to_float(row['unit_price'], 0.0), ratio, 2)
+    total_keep, total_split = _split_float_keep_total(to_float(row['total_price'], 0.0), ratio, 2)
+    cbm_keep, cbm_split = _split_float_keep_total(to_float(row['cbm_calculated'], 0.0), ratio, 6)
+    cbm_override_src = row['cbm_override']
+    cbm_override_keep = None
+    cbm_override_split = None
+    if cbm_override_src is not None:
+        cbm_override_keep, cbm_override_split = _split_float_keep_total(to_float(cbm_override_src, 0.0), ratio, 6)
+
+    ts = now_ts()
+    split_no = _next_split_inbound_no(conn, str(row['inbound_no']))
+    conn.execute(
+        '''
+        UPDATE inbound_items
+        SET carton_count=?, qty=?, unit_price=?, total_price=?, cbm_calculated=?, cbm_override=?, updated_at=?
+        WHERE id=?
+        ''',
+        (total_cartons - split_cartons, qty_keep, unit_keep, total_keep, cbm_keep, cbm_override_keep, ts, inbound_item_id),
+    )
+
+    cur = conn.execute(
+        '''
+        INSERT INTO inbound_items(
+          inbound_no, import_batch_id, customer_id, warehouse_id, inbound_date,
+          shop_no, position_or_tel, item_no, item_name_cn, material,
+          carton_count, qty, unit_price, total_price, deposit_hint,
+          length_cm, width_cm, height_cm, cbm_calculated, cbm_override,
+          status, container_id, remark, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'IN_STOCK', NULL, ?, ?, ?)
+        ''',
+        (
+            split_no,
+            row['import_batch_id'],
+            row['customer_id'],
+            row['warehouse_id'],
+            row['inbound_date'],
+            row['shop_no'],
+            row['position_or_tel'],
+            row['item_no'],
+            row['item_name_cn'],
+            row['material'],
+            split_cartons,
+            qty_split,
+            unit_split,
+            total_split,
+            row['deposit_hint'],
+            row['length_cm'],
+            row['width_cm'],
+            row['height_cm'],
+            cbm_split,
+            cbm_override_split,
+            row['remark'],
+            ts,
+            ts,
+        ),
+    )
+    new_id = int(cur.lastrowid)
+    return {
+        'source_item_id': int(inbound_item_id),
+        'new_item_id': new_id,
+        'source_cartons': int(total_cartons - split_cartons),
+        'new_cartons': int(split_cartons),
+        'source_qty': int(qty_keep),
+        'new_qty': int(qty_split),
+        'source_unit_price': unit_keep,
+        'new_unit_price': unit_split,
+        'source_total_price': total_keep,
+        'new_total_price': total_split,
+        'source_cbm': cbm_keep,
+        'new_cbm': cbm_split,
+    }
 
 
 def remove_item_from_container(conn: Connection, container_id: int, inbound_item_id: int) -> int:

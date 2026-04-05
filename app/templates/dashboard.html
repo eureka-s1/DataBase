@@ -80,7 +80,22 @@
       cursor: pointer;
       vertical-align: middle;
     }
+    input.plannerPickCustomer {
+      width: 22px;
+      height: 22px;
+      min-width: 0;
+      padding: 0;
+      margin: 0;
+      cursor: pointer;
+      vertical-align: middle;
+    }
     .plannerCbmInput { width: 98px; min-width: 0; }
+    .btn-mini {
+      padding: 3px 7px;
+      font-size: 12px;
+      border-radius: 6px;
+      line-height: 1.2;
+    }
     .usage-kpi {
       margin-top: 10px;
       font-size: 24px;
@@ -176,6 +191,9 @@
       border-radius: 10px;
       padding: 8px;
     }
+    .planner-split {
+      grid-template-columns: minmax(330px, 0.85fr) minmax(480px, 1.25fr);
+    }
     #tablePlannerAvailable,
     #tablePlannerSelected { table-layout: fixed; }
     #tablePlannerAvailable th,
@@ -193,19 +211,20 @@
       padding-left: 4px;
       padding-right: 4px;
     }
-    #tablePlannerAvailable th:nth-child(2), #tablePlannerAvailable td:nth-child(2) { width: 62px; }
-    #tablePlannerAvailable th:nth-child(3), #tablePlannerAvailable td:nth-child(3) { width: 102px; }
-    #tablePlannerAvailable th:nth-child(4), #tablePlannerAvailable td:nth-child(4) { width: 110px; }
-    #tablePlannerAvailable th:nth-child(5), #tablePlannerAvailable td:nth-child(5) { width: 92px; }
-    #tablePlannerAvailable th:nth-child(6), #tablePlannerAvailable td:nth-child(6) { width: 124px; }
-    #tablePlannerAvailable th:nth-child(7), #tablePlannerAvailable td:nth-child(7) { width: 84px; }
-    #tablePlannerAvailable th:nth-child(8), #tablePlannerAvailable td:nth-child(8) { width: 80px; }
+    #tablePlannerAvailable th:nth-child(2), #tablePlannerAvailable td:nth-child(2) { width: 110px; }
+    #tablePlannerAvailable th:nth-child(3), #tablePlannerAvailable td:nth-child(3) { width: 130px; }
+    #tablePlannerAvailable th:nth-child(4), #tablePlannerAvailable td:nth-child(4) { width: 52px; text-align: right; }
+    #tablePlannerAvailable th:nth-child(5), #tablePlannerAvailable td:nth-child(5) { width: 84px; text-align: right; }
+    #tablePlannerAvailable th:last-child, #tablePlannerAvailable td:last-child { width: 72px; text-align: center; }
+    #tablePlannerAvailable.summary-mode th:nth-child(3), #tablePlannerAvailable.summary-mode td:nth-child(3) { width: 58px; text-align: right; }
+    #tablePlannerAvailable.summary-mode th:nth-child(4), #tablePlannerAvailable.summary-mode td:nth-child(4) { width: 92px; text-align: right; }
     #plannerAvailableWrap { overflow-x: auto; }
     @media (max-width: 920px) {
       .layout { grid-template-columns: 1fr; }
       .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
       .tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .tab-btn { text-align: center; font-size: 13px; padding: 8px; }
+      .planner-split { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -474,6 +493,10 @@
           <div class="grid-2" style="margin-top:8px;">
             <div>
               <h4 style="margin:0 0 8px;">未出柜货物池（可勾选）</h4>
+              <div style="display:flex; gap:8px; margin:0 0 8px;">
+                <button class="btn primary" id="btnPlannerViewItems" type="button">货物明细</button>
+                <button class="btn" id="btnPlannerViewSummary" type="button">按客户汇总</button>
+              </div>
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
                 <div id="plannerAvailablePageInfo" class="small"></div>
                 <div style="display:flex; gap:8px;">
@@ -777,6 +800,9 @@
       plannerSortBy: 'customer',
       plannerKeyword: '',
       plannerHideAllocated: true,
+      plannerViewMode: 'items',
+      plannerAvailableFiltered: [],
+      plannerAvailableSummary: [],
       plannerAvailablePage: 1,
       plannerAvailablePageSize: 30,
       plannerSelectedPage: 1,
@@ -1226,30 +1252,84 @@
       } else {
         rows.sort((a, b) => String(a.customer_name || '').localeCompare(String(b.customer_name || '')) || dateSortKey(a.inbound_date).localeCompare(dateSortKey(b.inbound_date)));
       }
+      state.plannerAvailableFiltered = rows.slice();
+      const summaryMap = new Map();
+      rows.forEach(r => {
+        const key = String(r.customer_name || '').trim() || '未命名客户';
+        const cur = summaryMap.get(key) || { customer_name: key, cartons: 0, cbm_total: 0, stock_item_ids: [], statuses: new Set() };
+        cur.cartons += Number(r.carton_count || 0);
+        const cbm = Number(r.cbm_final ?? r.cbm_calculated ?? 0);
+        cur.cbm_total += Number.isFinite(cbm) ? cbm : 0;
+        const st = String(r.status || '').trim();
+        if (st) cur.statuses.add(st);
+        if (st === 'IN_STOCK') cur.stock_item_ids.push(Number(r.id));
+        summaryMap.set(key, cur);
+      });
+      state.plannerAvailableSummary = Array.from(summaryMap.values())
+        .sort((a, b) => a.customer_name.localeCompare(b.customer_name))
+        .map(x => ({
+          customer_name: x.customer_name,
+          cartons: x.cartons,
+          cbm_total: x.cbm_total,
+          stock_item_ids: Array.from(new Set((x.stock_item_ids || []).filter(n => Number.isFinite(n) && n > 0))),
+          status_text: Array.from(x.statuses).sort().join('/'),
+        }));
+
+      byId('btnPlannerViewItems').classList.toggle('primary', state.plannerViewMode === 'items');
+      byId('btnPlannerViewSummary').classList.toggle('primary', state.plannerViewMode === 'summary');
       const pageSize = Number(state.plannerAvailablePageSize || 30);
-      const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+      const renderRows = state.plannerViewMode === 'summary' ? state.plannerAvailableSummary : rows;
+      const totalPages = Math.max(1, Math.ceil(renderRows.length / pageSize));
       if (state.plannerAvailablePage > totalPages) state.plannerAvailablePage = totalPages;
       if (state.plannerAvailablePage < 1) state.plannerAvailablePage = 1;
       const start = (state.plannerAvailablePage - 1) * pageSize;
-      const pageRows = rows.slice(start, start + pageSize);
-      byId('plannerAvailablePageInfo').textContent = `共 ${rows.length} 条，当前第 ${state.plannerAvailablePage}/${totalPages} 页`;
+      const pageRows = renderRows.slice(start, start + pageSize);
+      byId('plannerAvailablePageInfo').textContent = `共 ${renderRows.length} 条，当前第 ${state.plannerAvailablePage}/${totalPages} 页`;
+      const showStatusCol = !state.plannerHideAllocated;
+      if (state.plannerViewMode === 'summary') {
+        byId('tablePlannerAvailable').classList.add('summary-mode');
+        const trs = pageRows.map(r => {
+          const canPick = Array.isArray(r.stock_item_ids) && r.stock_item_ids.length > 0;
+          const pickCell = canPick
+            ? `<input type="checkbox" class="plannerPickCustomer" value="${encodeURIComponent(r.customer_name)}">`
+            : '<span class="small">-</span>';
+          return `<tr>
+            <td>${pickCell}</td>
+            <td>${textCell(r.customer_name, 20)}</td>
+            <td>${r.cartons}</td>
+            <td>${Number(r.cbm_total || 0).toFixed(3)}</td>
+            ${showStatusCol ? `<td>${textCell(r.status_text || '', 14)}</td>` : ''}
+            <td><span class="small">批量加入</span></td>
+          </tr>`;
+        });
+        const headers = ['选择', '客户', '件数', '总CBM'].concat(showStatusCol ? ['状态'] : []).concat(['操作']);
+        renderTable(byId('tablePlannerAvailable'), headers, trs);
+        return;
+      }
+
+      byId('tablePlannerAvailable').classList.remove('summary-mode');
       const trs = pageRows.map(r => {
         const canPick = String(r.status || '') === 'IN_STOCK';
+        const cartons = Number(r.carton_count || 0);
+        const canSplit = canPick && cartons > 1;
         const pickCell = canPick
           ? `<input type="checkbox" class="plannerPick" value="${r.id}">`
           : `<span class="small">${r.status || ''}${r.container_id ? ` (柜${r.container_id})` : ''}</span>`;
+        const splitCell = canSplit
+          ? `<button class="btn btn-mini btnPlannerSplit" data-item-id="${r.id}" data-cartons="${cartons}" type="button">拆货</button>`
+          : `<span class="small">-</span>`;
         return `<tr>
           <td>${pickCell}</td>
-          <td>${r.id}</td>
-          <td>${formatMonthDayDisplay(r.inbound_date)}</td>
           <td>${textCell(r.customer_name, 16)}</td>
-          <td>${textCell(r.shop_no, 16)}</td>
-          <td>${textCell(r.item_name_cn, 24)}</td>
-          <td>${r.cbm_calculated ?? 0}</td>
-          <td>${textCell(r.status, 10)}</td>
+          <td>${textCell(r.item_name_cn, 14)}</td>
+          <td>${cartons}</td>
+          <td>${r.cbm_final ?? r.cbm_calculated ?? 0}</td>
+          ${showStatusCol ? `<td>${textCell(r.status, 10)}</td>` : ''}
+          <td>${splitCell}</td>
         </tr>`;
       });
-      renderTable(byId('tablePlannerAvailable'), ['选择', '货物ID', '入库日期', '客户', 'SHOP NO', '品名', 'CBM', '状态'], trs);
+      const headers = ['选择', '客户', '品名', 'CTNs', 'CBM'].concat(showStatusCol ? ['状态'] : []).concat(['操作']);
+      renderTable(byId('tablePlannerAvailable'), headers, trs);
     }
 
     function renderPlannerSelected() {
@@ -1262,10 +1342,10 @@
       const pageRows = allRows.slice(start, start + pageSize);
       const trs = pageRows.map(r => `
         <tr>
-          <td>${r.inbound_item_id}</td>
           <td>${formatMonthDayDisplay(r.inbound_date)}</td>
           <td>${r.customer_name || ''}</td>
           <td>${r.item_name_cn || ''}</td>
+          <td>${r.carton_count ?? 0}</td>
           <td>${formatCbm8(r.cbm_calculated ?? 0)}</td>
           <td><input class="plannerCbmInput" data-item-id="${r.inbound_item_id}" type="number" step="0.00000001" value="${formatCbm8(r.cbm_at_load ?? 0)}"></td>
           <td>
@@ -1274,7 +1354,7 @@
           </td>
         </tr>
       `);
-      renderTable(byId('tablePlannerSelected'), ['货物ID', '入库日期', '客户', '品名', '原CBM', '装柜CBM', '操作'], trs);
+      renderTable(byId('tablePlannerSelected'), ['入库日期', '客户', '品名', 'CTN', '原CBM', '装柜CBM', '操作'], trs);
       byId('plannerSelectedPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.plannerSelectedPage}/${totalPages} 页`;
     }
 
@@ -1851,10 +1931,21 @@
         state.plannerAvailablePage += 1;
         renderPlannerAvailable();
       };
+      byId('btnPlannerViewItems').onclick = () => {
+        state.plannerViewMode = 'items';
+        state.plannerAvailablePage = 1;
+        renderPlannerAvailable();
+      };
+      byId('btnPlannerViewSummary').onclick = () => {
+        state.plannerViewMode = 'summary';
+        state.plannerAvailablePage = 1;
+        renderPlannerAvailable();
+      };
       byId('btnPlannerPickPage').onclick = () => {
-        const checks = Array.from(document.querySelectorAll('#tablePlannerAvailable .plannerPick'));
+        const selector = state.plannerViewMode === 'summary' ? '.plannerPickCustomer' : '.plannerPick';
+        const checks = Array.from(document.querySelectorAll(`#tablePlannerAvailable ${selector}`));
         if (checks.length === 0) {
-          setMsg('当前页没有可勾选货物', false);
+          setMsg(state.plannerViewMode === 'summary' ? '当前页没有可勾选客户' : '当前页没有可勾选货物', false);
           return;
         }
         const shouldSelect = checks.some(x => !x.checked);
@@ -1866,10 +1957,21 @@
           setMsg('请先选择柜次', false);
           return;
         }
-        const checks = Array.from(document.querySelectorAll('#tablePlannerAvailable .plannerPick:checked'));
-        const ids = checks.map(x => Number(x.value)).filter(x => x > 0);
+        let ids = [];
+        if (state.plannerViewMode === 'summary') {
+          const checks = Array.from(document.querySelectorAll('#tablePlannerAvailable .plannerPickCustomer:checked'));
+          const names = checks.map(x => decodeURIComponent(String(x.value || ''))).filter(Boolean);
+          const idSet = new Set();
+          state.plannerAvailableSummary
+            .filter(x => names.includes(String(x.customer_name || '')))
+            .forEach(x => (x.stock_item_ids || []).forEach(id => idSet.add(Number(id))));
+          ids = Array.from(idSet).filter(x => Number.isFinite(x) && x > 0);
+        } else {
+          const checks = Array.from(document.querySelectorAll('#tablePlannerAvailable .plannerPick:checked'));
+          ids = checks.map(x => Number(x.value)).filter(x => x > 0);
+        }
         if (ids.length === 0) {
-          setMsg('请先勾选要加入柜次的货物', false);
+          setMsg(state.plannerViewMode === 'summary' ? '请先勾选要加入柜次的客户' : '请先勾选要加入柜次的货物', false);
           return;
         }
         let ok = 0;
@@ -1944,6 +2046,27 @@
             showDoneModal(`货物 ${itemId} 装柜体积已更新为 ${formatCbm8(cbmRounded)}。`);
           } catch (err) { setMsg(err.message, false); }
         }
+      };
+      byId('tablePlannerAvailable').onclick = async (e) => {
+        const btnSplit = e.target.closest('.btnPlannerSplit');
+        if (!btnSplit) return;
+        const itemId = Number(btnSplit.dataset.itemId || 0);
+        const cartons = Number(btnSplit.dataset.cartons || 0);
+        if (!itemId || cartons <= 1) return;
+        const raw = prompt(`请输入要拆分的CTN数量（1-${cartons - 1}）`, '1');
+        if (raw === null) return;
+        const splitCartons = Number(String(raw).trim());
+        if (!Number.isInteger(splitCartons) || splitCartons <= 0 || splitCartons >= cartons) {
+          setMsg(`拆分CTN必须是 1 到 ${cartons - 1} 的整数`, false);
+          return;
+        }
+        if (!confirm(`确认将货物 ${itemId} 按 ${splitCartons}/${cartons} CTN 进行拆货吗？`)) return;
+        try {
+          const r = await api(`/inbound-items/${itemId}/split-by-cartons`, 'POST', { split_cartons: splitCartons });
+          await refreshAllViews();
+          setMsg(`拆货完成：${r.source_item_id} -> 新增 ${r.new_item_id}`);
+          showDoneModal(`拆货完成：原货物 ${r.source_item_id} 保留 ${r.source_cartons} CTN，新货物 ${r.new_item_id} 为 ${r.new_cartons} CTN。`, '执行完成');
+        } catch (err) { setMsg(err.message, false); }
       };
       byId('tableInbound').onclick = async (e) => {
         const editBtn = e.target.closest('.btnEditInbound');
