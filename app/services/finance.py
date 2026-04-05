@@ -18,7 +18,7 @@ def add_payment(conn: Connection, payload: dict, user_id: int) -> int:
             payload['customer_id'],
             payload.get('payment_date', today_str()),
             payload['amount'],
-            payload.get('currency', 'CNY'),
+            payload.get('currency', 'USD'),
             payload.get('method', 'WECHAT'),
             payload.get('reference_no'),
             payload.get('remark'),
@@ -77,7 +77,7 @@ def generate_statement(conn: Connection, container_id: int, user_id: int,
     cur = conn.execute(
         '''
         INSERT INTO settlement_statements(statement_no, container_id, statement_date, status, currency, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, 'DRAFT', 'CNY', ?, ?, ?)
+        VALUES (?, ?, ?, 'DRAFT', 'USD', ?, ?, ?)
         ''',
         (no, container_id, date_val, user_id, ts, ts),
     )

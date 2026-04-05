@@ -224,7 +224,18 @@ def list_containers(conn: Connection) -> list[dict]:
         '''
         SELECT c.*,
                COALESCE(SUM(ci.cbm_at_load), 0) AS used_cbm,
-               COUNT(ci.id) AS item_count
+               COUNT(ci.id) AS item_count,
+               CASE
+                 WHEN c.status='CONFIRMED' AND EXISTS(
+                   SELECT 1 FROM settlement_statements s
+                   WHERE s.container_id=c.id AND s.status='POSTED'
+                 ) THEN 'POSTED'
+                 WHEN c.status='CONFIRMED' AND EXISTS(
+                   SELECT 1 FROM settlement_statements s2
+                   WHERE s2.container_id=c.id AND s2.status='DRAFT'
+                 ) THEN 'SETTLING'
+                 ELSE c.status
+               END AS status_display
         FROM containers c
         LEFT JOIN container_items ci ON ci.container_id = c.id
         GROUP BY c.id

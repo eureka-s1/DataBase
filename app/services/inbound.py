@@ -159,7 +159,18 @@ def list_customer_items(
         f'''
         SELECT i.*, cu.name AS customer_name,
                COALESCE(i.cbm_override, i.cbm_calculated) AS cbm_final,
-               c.container_no, c.status AS container_status
+               c.container_no,
+               CASE
+                 WHEN c.status='CONFIRMED' AND EXISTS(
+                   SELECT 1 FROM settlement_statements s
+                   WHERE s.container_id=c.id AND s.status='POSTED'
+                 ) THEN 'POSTED'
+                 WHEN c.status='CONFIRMED' AND EXISTS(
+                   SELECT 1 FROM settlement_statements s2
+                   WHERE s2.container_id=c.id AND s2.status='DRAFT'
+                 ) THEN 'SETTLING'
+                 ELSE c.status
+               END AS container_status
         FROM inbound_items i
         JOIN customers cu ON cu.id = i.customer_id
         LEFT JOIN containers c ON c.id = i.container_id

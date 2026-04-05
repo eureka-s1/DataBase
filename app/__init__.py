@@ -234,7 +234,7 @@ def create_app() -> Flask:
                 effective_from=payload['effective_from'],
                 effective_to=payload.get('effective_to'),
                 price_per_m3=float(payload['price_per_m3']),
-                currency=payload.get('currency', 'CNY'),
+                currency=payload.get('currency', 'USD'),
                 remark=payload.get('remark'),
             )
         return {'message': 'ok'}

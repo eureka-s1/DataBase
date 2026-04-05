@@ -5,7 +5,7 @@ from .common import today_str
 
 
 def upsert_price_rule(conn: Connection, customer_id: int, effective_from: str, price_per_m3: float,
-                      currency: str = 'CNY', effective_to: str | None = None, remark: str | None = None) -> None:
+                      currency: str = 'USD', effective_to: str | None = None, remark: str | None = None) -> None:
     conn.execute(
         '''
         INSERT INTO customer_price_rules(customer_id, effective_from, effective_to, price_per_m3, currency, remark)
