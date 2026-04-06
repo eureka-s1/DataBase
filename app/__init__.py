@@ -436,6 +436,32 @@ def create_app() -> Flask:
             revoke_container(conn, container_id)
         return {'message': 'revoked'}
 
+    @app.route('/containers/<int:container_id>/ship', methods=['POST'])
+    @login_required
+    def ship_container_api(container_id: int):
+        with db_session() as conn:
+            c = conn.execute('SELECT id, status FROM containers WHERE id=?', (container_id,)).fetchone()
+            if not c:
+                return {'error': 'container not found'}, 404
+            if c['status'] != 'CONFIRMED':
+                return {'error': 'only CONFIRMED container can be shipped'}, 400
+
+            posted = conn.execute(
+                "SELECT id FROM settlement_statements WHERE container_id=? AND status='POSTED' ORDER BY id DESC LIMIT 1",
+                (container_id,),
+            ).fetchone()
+            if posted:
+                return {'error': 'container already shipped (POSTED)'}, 400
+
+            draft = conn.execute(
+                "SELECT id FROM settlement_statements WHERE container_id=? AND status='DRAFT' ORDER BY id DESC LIMIT 1",
+                (container_id,),
+            ).fetchone()
+            if not draft:
+                generate_statement(conn, container_id=container_id, user_id=int(session['user_id']))
+            statement_id = post_statement_by_container(conn, container_id)
+        return {'message': 'shipped', 'container_id': container_id, 'statement_id': statement_id}
+
     @app.route('/payments', methods=['POST'])
     @login_required
     def add_payment_api():

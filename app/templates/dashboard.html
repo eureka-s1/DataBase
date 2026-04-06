@@ -563,6 +563,21 @@
           <div id="containersTableWrap"><table id="tableContainers"></table></div>
         </div>
         <div class="card">
+          <h3>货柜出仓</h3>
+          <form id="formContainerShip" class="inline">
+            <button class="btn" id="btnRefreshContainerShip" type="submit">刷新可出仓柜次</button>
+          </form>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin:8px 0;">
+            <div id="containerShipPageInfo" class="small"></div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn" id="btnContainerShipPrev" type="button">上一页</button>
+              <button class="btn" id="btnContainerShipNext" type="button">下一页</button>
+              <button class="btn" id="btnContainerShipCollapse" type="button">收起</button>
+            </div>
+          </div>
+          <div id="containerShipTableWrap"><table id="tableContainerShip"></table></div>
+        </div>
+        <div class="card">
           <h3>柜次明细（展开查看）</h3>
           <form id="formContainerDetails" class="inline">
             <label>柜次ID<input name="container_id" placeholder="例如 12"></label>
@@ -902,6 +917,8 @@
       customersPageSize: 50,
       containersPage: 1,
       containersPageSize: 50,
+      containerShipPage: 1,
+      containerShipPageSize: 20,
       statementsPage: 1,
       statementsPageSize: 50,
       importBatchPage: 1,
@@ -1299,7 +1316,30 @@
       ));
       renderPlannerContainerOptions();
       renderStatementContainerOptions();
+      renderContainerShipList();
       byId('containersPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.containersPage}/${totalPages} 页`;
+    }
+
+    function renderContainerShipList() {
+      const allRows = state.containers.filter(c => String(c.status || '') === 'CONFIRMED');
+      const pageSize = Number(state.containerShipPageSize || 20);
+      const totalPages = Math.max(1, Math.ceil(allRows.length / pageSize));
+      if (state.containerShipPage > totalPages) state.containerShipPage = totalPages;
+      if (state.containerShipPage < 1) state.containerShipPage = 1;
+      const start = (state.containerShipPage - 1) * pageSize;
+      const pageRows = allRows.slice(start, start + pageSize);
+      const rows = pageRows.map(c =>
+        `<tr>
+          <td>${c.id}</td>
+          <td>${c.container_no || ''}</td>
+          <td>${statusPill(c.status_display || c.status)}</td>
+          <td>${c.item_count ?? 0}</td>
+          <td>${c.master_customer_name || ''}</td>
+          <td><button class="btn btnShipContainer" data-id="${c.id}" data-no="${(c.container_no || '').replace(/"/g, '&quot;')}" type="button">出仓并过账</button></td>
+        </tr>`
+      );
+      renderTable(byId('tableContainerShip'), ['ID', '柜号', '状态', '件数', '柜主', '操作'], rows);
+      byId('containerShipPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.containerShipPage}/${totalPages} 页`;
     }
 
     function renderPlannerContainerOptions() {
@@ -1825,6 +1865,7 @@
       makeSubnav('panel-container', [
         { label: '货柜工作台', cards: uniq([cardOf('formPlannerFilters')]) },
         { label: '柜次管理', cards: uniq([cardOf('formCreateContainer'), cardOf('tableContainers')]) },
+        { label: '货柜出仓', cards: uniq([cardOf('formContainerShip')]) },
         { label: '柜次明细', cards: uniq([cardOf('formContainerDetails')]) },
       ]);
 
@@ -1891,6 +1932,7 @@
       };
       bindCollapse('btnCustomersCollapse', 'customersTableWrap');
       bindCollapse('btnContainersCollapse', 'containersTableWrap');
+      bindCollapse('btnContainerShipCollapse', 'containerShipTableWrap');
       bindCollapse('btnStatementsCollapse', 'statementsTableWrap');
       bindCollapse('btnImportBatchCollapse', 'importBatchTableWrap');
       bindCollapse('btnPlannerSelCollapse', 'plannerSelectedWrap');
@@ -1922,6 +1964,29 @@
       };
       byId('btnContainersPrev').onclick = () => { state.containersPage -= 1; renderContainers(); };
       byId('btnContainersNext').onclick = () => { state.containersPage += 1; renderContainers(); };
+      byId('btnContainerShipPrev').onclick = () => { state.containerShipPage -= 1; renderContainerShipList(); };
+      byId('btnContainerShipNext').onclick = () => { state.containerShipPage += 1; renderContainerShipList(); };
+      byId('formContainerShip').onsubmit = async (e) => {
+        e.preventDefault();
+        try {
+          await refreshContainers();
+          setMsg('可出仓柜次列表已刷新');
+        } catch (err) { setMsg(err.message, false); }
+      };
+      byId('tableContainerShip').onclick = async (e) => {
+        const btn = e.target.closest('.btnShipContainer');
+        if (!btn) return;
+        const containerId = Number(btn.dataset.id || 0);
+        const no = String(btn.dataset.no || '').trim();
+        if (!containerId) return;
+        if (!confirm(`确认将柜次 ${no || containerId} 出仓并完成过账吗？`)) return;
+        try {
+          const r = await api(`/containers/${containerId}/ship`, 'POST', {});
+          await refreshAllViews();
+          setMsg(`柜次 ${no || containerId} 已出仓，结算单ID=${r.statement_id}`);
+          showDoneModal(`柜次 ${no || containerId} 已出仓并过账，结算单ID=${r.statement_id}。`, '确认成功');
+        } catch (err) { setMsg(err.message, false); }
+      };
       byId('tableContainers').onclick = async (e) => {
         const btn = e.target.closest('.btnEditContainerNo');
         if (!btn) return;
