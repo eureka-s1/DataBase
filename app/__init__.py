@@ -26,7 +26,15 @@ from .services.containers import (
     update_container_no,
     update_item_cbm_at_load,
 )
-from .services.customers import create_customer, find_customer_id_by_name, list_customers, merge_customers, resolve_customer_id, upsert_alias
+from .services.customers import (
+    create_customer,
+    find_customer_id_by_name,
+    list_customers,
+    merge_customers,
+    resolve_customer_id,
+    update_customer_phone,
+    upsert_alias,
+)
 from .services.finance import (
     add_payment,
     generate_statement,
@@ -176,6 +184,14 @@ def create_app() -> Flask:
                 default_price_per_m3=float(payload.get('default_price_per_m3', 89.71)),
             )
         return {'id': customer_id}, 201
+
+    @app.route('/customers/<int:customer_id>/phone', methods=['PUT'])
+    @login_required
+    def customers_update_phone_api(customer_id: int):
+        payload = request.get_json(force=True)
+        with db_session() as conn:
+            update_customer_phone(conn, customer_id, payload.get('phone'))
+        return {'message': 'ok'}
 
     @app.route('/customer-aliases', methods=['POST'])
     @login_required

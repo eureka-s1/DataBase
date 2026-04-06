@@ -255,7 +255,8 @@ def _extract_batch_date_from_header_row(row: list, mapping: dict[int, str]) -> s
 
 def _extract_phone_from_book(book: list[tuple[str, list[list]]]) -> str | None:
     c = Counter()
-    for _sname, rows in book:
+    # Phone is more likely to reflect current customer info in recent sheets.
+    for _sname, rows in book[-3:]:
         for row in rows[:1200]:
             if not row:
                 continue

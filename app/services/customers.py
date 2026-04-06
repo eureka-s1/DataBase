@@ -258,3 +258,14 @@ def list_customers(conn: Connection) -> list[dict]:
             "aliases": row["aliases"].split("|") if row["aliases"] else [],
         })
     return result
+
+
+def update_customer_phone(conn: Connection, customer_id: int, phone: str | None) -> None:
+    row = conn.execute("SELECT id FROM customers WHERE id=? AND is_active=1", (customer_id,)).fetchone()
+    if not row:
+        raise ValueError("customer not found")
+    phone_text = str(phone or "").strip()
+    conn.execute(
+        "UPDATE customers SET phone=?, updated_at=? WHERE id=?",
+        (phone_text or None, now_ts(), customer_id),
+    )

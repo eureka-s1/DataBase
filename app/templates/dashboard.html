@@ -1224,7 +1224,7 @@
       const start = (state.customersPage - 1) * pageSize;
       const pageRows = allRows.slice(start, start + pageSize);
       const rows = pageRows.map(c =>
-        `<tr><td>${c.id}</td><td>${c.customer_code || ''}</td><td>${c.name || ''}</td><td>${c.phone || ''}</td><td>${(c.aliases || []).join(' / ')}</td><td>${signedMoneyText(ledgerMap.get(Number(c.id)) || 0)}</td></tr>`
+        `<tr><td>${c.id}</td><td>${c.customer_code || ''}</td><td>${c.name || ''}</td><td>${c.phone || ''} <button class="icon-btn-sm btnEditCustomerPhone" data-id="${c.id}" data-phone="${String(c.phone || '').replace(/"/g, '&quot;')}" title="修改电话" type="button">✏️</button></td><td>${(c.aliases || []).join(' / ')}</td><td>${signedMoneyText(ledgerMap.get(Number(c.id)) || 0)}</td></tr>`
       );
       renderTable(document.getElementById('tableCustomers'), ['ID', '编码', '客户名', '电话', '别名', `净余额(${moneyUnit()})`], rows);
       byId('customersPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.customersPage}/${totalPages} 页`;
@@ -1905,6 +1905,21 @@
       byId('customerItemsPageSize').onchange = (e) => { state.customerItemsPageSize = Number(e.target.value || 50); state.customerItemsPage = 1; renderCustomerItems(); };
       byId('btnCustomersPrev').onclick = () => { state.customersPage -= 1; renderCustomers(); };
       byId('btnCustomersNext').onclick = () => { state.customersPage += 1; renderCustomers(); };
+      byId('tableCustomers').onclick = async (e) => {
+        const btn = e.target.closest('.btnEditCustomerPhone');
+        if (!btn) return;
+        const customerId = Number(btn.dataset.id || 0);
+        const oldPhone = String(btn.dataset.phone || '').trim();
+        if (!customerId) return;
+        const nextPhone = (prompt(`请输入新的电话号码（当前：${oldPhone || '空'}）`, oldPhone) || '').trim();
+        if (nextPhone === oldPhone) return;
+        try {
+          await api(`/customers/${customerId}/phone`, 'PUT', { phone: nextPhone });
+          await refreshCustomers();
+          setMsg(`客户 ${customerId} 电话已更新`);
+          showDoneModal(`客户 ${customerId} 电话已更新为 ${nextPhone || '空'}。`, '确认成功');
+        } catch (err) { setMsg(err.message, false); }
+      };
       byId('btnContainersPrev').onclick = () => { state.containersPage -= 1; renderContainers(); };
       byId('btnContainersNext').onclick = () => { state.containersPage += 1; renderContainers(); };
       byId('tableContainers').onclick = async (e) => {
