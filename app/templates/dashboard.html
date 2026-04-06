@@ -240,7 +240,7 @@
         <button class="tab-btn" data-tab="container">货柜管理</button>
         <button class="tab-btn" data-tab="finance">资金结算</button>
         <button class="tab-btn" data-tab="io">导入导出</button>
-        <button class="tab-btn" data-tab="account">账户</button>
+        <button class="tab-btn" data-tab="settings">设置</button>
       </div>
     </aside>
 
@@ -672,6 +672,15 @@
         <div class="grid-2">
           <div class="card">
             <h3>手动导入收货清单</h3>
+            <div class="sec-title">0) 从工作目录选择（优先）</div>
+            <div class="small" id="importWorkDirHint" style="margin:0 0 6px;">工作目录：未设置</div>
+            <form id="formImportPickWorkdir" class="inline">
+              <label>工作目录文件
+                <select id="importWorkdirFileSelect" name="workdir_file"></select>
+              </label>
+              <button class="btn" id="btnRefreshWorkdirFiles" type="button">刷新目录文件</button>
+              <button class="btn" type="submit">使用该文件</button>
+            </form>
             <div class="sec-title">1) 上传并预览</div>
             <form id="formImportUpload" class="inline">
               <label>选择文件
@@ -764,7 +773,17 @@
         </div>
       </section>
 
-      <section class="panel" id="panel-account">
+      <section class="panel" id="panel-settings">
+        <div class="card">
+          <h3>工作目录</h3>
+          <div id="workDirCurrent" class="path-box">当前工作目录：未设置</div>
+          <form id="formWorkDir" class="inline" style="margin-top:8px;">
+            <label>工作目录路径<input id="workDirInput" name="work_dir" placeholder="/path/to/2026data" required></label>
+            <button class="btn" id="btnPickWorkDir" type="button">浏览文件夹</button>
+            <button class="btn primary" type="submit">保存工作目录</button>
+          </form>
+          <div class="small">该目录用于客户文件夹与每日清单存放。手动导入会优先从这里选择文件。</div>
+        </div>
         <div class="card">
           <h3>修改密码</h3>
           <form id="formChangePwd" class="inline">
@@ -802,6 +821,7 @@
       ledgerPage: 1,
       ledgerPageSize: 50,
       importBatches: [],
+      settings: { work_dir: '' },
       plannerAvailable: [],
       plannerSelected: [],
       plannerContainerId: '',
@@ -911,6 +931,26 @@
       byId('importPreviewBox').classList.remove('show');
       byId('importPreviewSummary').textContent = '';
       byId('importPreviewTable').innerHTML = '';
+    }
+
+    async function refreshSettings() {
+      const s = await api('/settings');
+      state.settings = s || { work_dir: '' };
+      const wd = String(state.settings.work_dir || '').trim();
+      if (byId('workDirCurrent')) byId('workDirCurrent').textContent = wd ? `当前工作目录：${wd}` : '当前工作目录：未设置';
+      if (byId('workDirInput')) byId('workDirInput').value = wd;
+      if (byId('importWorkDirHint')) byId('importWorkDirHint').textContent = wd ? `工作目录：${wd}` : '工作目录：未设置';
+    }
+
+    async function refreshWorkDirImportFiles() {
+      const r = await api('/import/inbound/workdir-files?limit=300');
+      const files = Array.isArray(r.files) ? r.files : [];
+      const el = byId('importWorkdirFileSelect');
+      if (!el) return;
+      const opts = ['<option value="">请选择工作目录内收货清单</option>'].concat(
+        files.map(f => `<option value="${String(f.path || '').replace(/"/g, '&quot;')}">${f.rel_path || f.filename || f.path}</option>`)
+      );
+      el.innerHTML = opts.join('');
     }
 
     function statusPill(status) {
@@ -1678,6 +1718,11 @@
         { label: '导入', cards: uniq([cardOf('formImportUpload')]) },
         { label: '导出与备份', cards: uniq([cardOf('formExportDaily')]) },
       ]);
+
+      makeSubnav('panel-settings', [
+        { label: '工作目录', cards: uniq([cardOf('formWorkDir')]) },
+        { label: '账户设置', cards: uniq([cardOf('formChangePwd')]) },
+      ]);
     }
 
     function setupVisualHints() {
@@ -2418,6 +2463,25 @@
           setMsg('收货清单上传成功');
         } catch (err) { setMsg(err.message, false); }
       };
+      byId('btnRefreshWorkdirFiles').onclick = async () => {
+        try {
+          await refreshSettings();
+          await refreshWorkDirImportFiles();
+          setMsg('工作目录文件列表已刷新');
+        } catch (err) { setMsg(err.message, false); }
+      };
+      byId('formImportPickWorkdir').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        const p = String(f.get('workdir_file') || '').trim();
+        if (!p) {
+          setMsg('请先选择工作目录文件', false);
+          return;
+        }
+        const filename = p.split('/').pop()?.split('\\\\').pop() || '';
+        setImportFilePath(p, filename);
+        setMsg('已选中工作目录文件');
+      };
 
       byId('formImportPreview').onsubmit = async (e) => {
         e.preventDefault();
@@ -2615,6 +2679,37 @@
           setMsg('密码修改成功');
         } catch (err) { setMsg(err.message, false); }
       };
+      byId('formWorkDir').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        const wd = String(f.get('work_dir') || '').trim();
+        if (!wd) {
+          setMsg('请输入工作目录路径', false);
+          return;
+        }
+        try {
+          await api('/settings/work-dir', 'PUT', { work_dir: wd });
+          await refreshSettings();
+          await refreshWorkDirImportFiles();
+          setMsg('工作目录已更新');
+        } catch (err) { setMsg(err.message, false); }
+      };
+      byId('btnPickWorkDir').onclick = async () => {
+        try {
+          const initial = String(byId('workDirInput')?.value || '').trim();
+          const r = await api('/settings/work-dir/pick', 'POST', { initial_dir: initial || null });
+          if (byId('workDirInput')) byId('workDirInput').value = String(r.work_dir || '');
+          await refreshSettings();
+          await refreshWorkDirImportFiles();
+          setMsg('工作目录已通过文件管理器更新');
+        } catch (err) {
+          if (String(err.message || '').toLowerCase().includes('cancelled')) {
+            setMsg('已取消选择工作目录');
+          } else {
+            setMsg(err.message, false);
+          }
+        }
+      };
     }
 
     setupTabs();
@@ -2636,6 +2731,7 @@
     refreshPayments().catch(() => {});
     refreshImportBatches('', '', 20).catch(() => {});
     refreshPlannerData().catch(() => {});
+    refreshSettings().then(refreshWorkDirImportFiles).catch(() => {});
   </script>
 </body>
 </html>

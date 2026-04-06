@@ -55,6 +55,7 @@ from .services.reports import (
     export_statement_excel,
     export_statement_pdf,
 )
+from .services.ui_settings import get_ui_settings, list_receipt_files, pick_work_dir, set_work_dir
 
 
 def login_required(fn):
@@ -594,6 +595,15 @@ def create_app() -> Flask:
         f.save(out)
         return {'file_path': str(out), 'filename': filename}
 
+    @app.route('/import/inbound/workdir-files', methods=['GET'])
+    @login_required
+    def import_workdir_files_api():
+        limit_raw = (request.args.get('limit') or '200').strip()
+        limit = max(1, min(1000, int(limit_raw)))
+        s = get_ui_settings()
+        files = list_receipt_files(s.get('work_dir', ''), limit=limit)
+        return {'work_dir': s.get('work_dir', ''), 'files': files}
+
     @app.route('/import/inbound/execute', methods=['POST'])
     @login_required
     def import_execute_api():
@@ -647,6 +657,23 @@ def create_app() -> Flask:
             'container_count': container_count,
             'statement_count': statement_count,
         }
+
+    @app.route('/settings', methods=['GET'])
+    @login_required
+    def settings_api():
+        return get_ui_settings()
+
+    @app.route('/settings/work-dir', methods=['PUT'])
+    @login_required
+    def settings_work_dir_api():
+        payload = request.get_json(force=True)
+        return set_work_dir(payload.get('work_dir'))
+
+    @app.route('/settings/work-dir/pick', methods=['POST'])
+    @login_required
+    def settings_work_dir_pick_api():
+        payload = request.get_json(force=True) or {}
+        return pick_work_dir(payload.get('initial_dir'))
 
     @app.route('/ui/dashboard', methods=['GET'])
     @login_required
