@@ -21,6 +21,7 @@ from .services.containers import (
     remove_item_from_container,
     revoke_container,
     split_inbound_item_by_cartons,
+    update_container_master_customer,
     update_container_no,
     update_item_cbm_at_load,
 )
@@ -313,6 +314,14 @@ def create_app() -> Flask:
         payload = request.get_json(force=True)
         with db_session() as conn:
             update_container_no(conn, container_id, payload.get('container_no', ''))
+        return {'message': 'ok'}
+
+    @app.route('/containers/<int:container_id>/master-customer', methods=['PUT'])
+    @login_required
+    def update_container_master_customer_api(container_id: int):
+        payload = request.get_json(force=True)
+        with db_session() as conn:
+            update_container_master_customer(conn, container_id, payload.get('master_customer_id'))
         return {'message': 'ok'}
 
     @app.route('/containers/<int:container_id>/usage', methods=['GET'])

@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS inbound_import_rows (
 CREATE TABLE IF NOT EXISTS containers (
   id INTEGER PRIMARY KEY,
   container_no TEXT NOT NULL UNIQUE,
+  master_customer_id INTEGER,
   container_type TEXT NOT NULL DEFAULT '40HQ',
   capacity_cbm NUMERIC NOT NULL DEFAULT 68.0,
   eta_date TEXT,
@@ -116,6 +117,7 @@ CREATE TABLE IF NOT EXISTS containers (
   created_by INTEGER NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
+  FOREIGN KEY(master_customer_id) REFERENCES customers(id),
   FOREIGN KEY(created_by) REFERENCES users(id)
 );
 

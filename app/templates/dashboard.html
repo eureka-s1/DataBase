@@ -488,6 +488,11 @@
             <button class="btn" id="btnPlannerRefresh" type="submit">刷新货物池</button>
           </form>
           <div id="plannerUsage" class="usage-kpi">当前占用：0 / 68 CBM</div>
+          <div id="plannerMasterCustomer" class="usage-kpi">当前柜主：未选择</div>
+          <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; margin-top:6px;">
+            <label style="margin:0;">柜主（输入客户名）<input id="plannerMasterCustomerName" type="text" placeholder="输入客户名后设置"></label>
+            <button class="btn" id="btnPlannerSetMasterCustomer" type="button" style="height:34px;">设置柜主</button>
+          </div>
           <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
             <button class="btn primary" id="btnPlannerAddSelected" type="button">将勾选货物加入柜次</button>
             <button class="btn primary" id="btnPlannerConfirm" type="button">完成组柜（出柜）</button>
@@ -1142,12 +1147,26 @@
       const el = byId('plannerContainerId');
       if (!el) return;
       const options = ['<option value="">请选择柜次</option>'].concat(
-        state.containers.map(c => `<option value="${c.id}">${c.id} - ${c.container_no || ''} (${c.status || ''})</option>`)
+        state.containers.map(c => {
+          const master = (c.master_customer_name || '').trim() || '未选择';
+          return `<option value="${c.id}">${c.id} - ${c.container_no || ''} (${c.status || ''}) | 柜主:${master}</option>`;
+        })
       );
       el.innerHTML = options.join('');
       if (state.plannerContainerId) {
         el.value = String(state.plannerContainerId);
       }
+      renderPlannerMasterCustomer();
+    }
+
+    function renderPlannerMasterCustomer() {
+      const box = byId('plannerMasterCustomer');
+      const input = byId('plannerMasterCustomerName');
+      if (!box || !input) return;
+      const c = state.containers.find(x => String(x.id) === String(state.plannerContainerId || ''));
+      const master = c ? ((c.master_customer_name || '').trim() || '未选择') : '未选择';
+      box.textContent = `当前柜主：${master}`;
+      input.value = c?.master_customer_name || '';
     }
 
     function renderStatementContainerOptions() {
@@ -1365,10 +1384,12 @@
     async function refreshPlannerUsage() {
       if (!state.plannerContainerId) {
         byId('plannerUsage').textContent = '当前占用：0 / 68 CBM';
+        renderPlannerMasterCustomer();
         return;
       }
       const usage = await api(`/containers/${encodeURIComponent(state.plannerContainerId)}/usage`);
       byId('plannerUsage').textContent = `当前占用：${usage.used_cbm} / ${usage.capacity_cbm} CBM（剩余 ${usage.remain_cbm}）`;
+      renderPlannerMasterCustomer();
     }
 
     async function refreshPlannerData() {
@@ -1911,6 +1932,32 @@
       byId('plannerContainerId').onchange = async (e) => {
         state.plannerContainerId = String(e.target.value || '').trim();
         try { await refreshPlannerData(); } catch (err) { setMsg(err.message, false); }
+      };
+      byId('btnPlannerSetMasterCustomer').onclick = async () => {
+        try {
+          if (!state.plannerContainerId) {
+            setMsg('请先选择柜次', false);
+            return;
+          }
+          const name = String(byId('plannerMasterCustomerName')?.value || '').trim();
+          let customerId = null;
+          if (name) {
+            const resolved = await api(`/customer-resolve?name=${encodeURIComponent(name)}`);
+            if (!resolved || !resolved.matched) {
+              setMsg('未找到该客户名，请检查客户主档/别名', false);
+              return;
+            }
+            customerId = Number(resolved.customer_id);
+          }
+          await api(`/containers/${encodeURIComponent(state.plannerContainerId)}/master-customer`, 'PUT', {
+            master_customer_id: customerId,
+          });
+          await refreshContainers();
+          await refreshPlannerData();
+          setMsg(customerId ? '柜主已更新' : '柜主已清空');
+        } catch (err) {
+          setMsg(err.message, false);
+        }
       };
       byId('plannerSortBy').onchange = (e) => {
         state.plannerSortBy = String(e.target.value || 'customer').trim();

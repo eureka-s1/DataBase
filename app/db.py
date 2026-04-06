@@ -42,3 +42,7 @@ def init_db(db_path: Path | None = None) -> None:
                 "INSERT INTO warehouses(name, location, is_active) VALUES (?, ?, 1)",
                 ("Main Warehouse", "Default"),
             )
+        # lightweight schema migration for existing DBs
+        cols = {str(r["name"]) for r in conn.execute("PRAGMA table_info(containers)").fetchall()}
+        if "master_customer_id" not in cols:
+            conn.execute("ALTER TABLE containers ADD COLUMN master_customer_id INTEGER")

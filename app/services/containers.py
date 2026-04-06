@@ -5,6 +5,31 @@ from sqlite3 import Connection
 from .common import now_ts, to_float, to_int
 
 
+def _ensure_master_customer_valid(conn: Connection, container_id: int) -> None:
+    row = conn.execute(
+        'SELECT master_customer_id FROM containers WHERE id=?',
+        (container_id,),
+    ).fetchone()
+    if not row or row['master_customer_id'] is None:
+        return
+    master_customer_id = int(row['master_customer_id'])
+    hit = conn.execute(
+        '''
+        SELECT 1
+        FROM container_items ci
+        JOIN inbound_items i ON i.id = ci.inbound_item_id
+        WHERE ci.container_id=? AND i.customer_id=?
+        LIMIT 1
+        ''',
+        (container_id, master_customer_id),
+    ).fetchone()
+    if not hit:
+        conn.execute(
+            'UPDATE containers SET master_customer_id=NULL, updated_at=? WHERE id=?',
+            (now_ts(), container_id),
+        )
+
+
 def create_container(conn: Connection, payload: dict, user_id: int) -> int:
     ts = now_ts()
     capacity_cbm = to_float(payload.get('capacity_cbm'), 68.0)
@@ -47,6 +72,37 @@ def update_container_no(conn: Connection, container_id: int, container_no: str) 
     conn.execute(
         'UPDATE containers SET container_no=?, updated_at=? WHERE id=?',
         (no, now_ts(), container_id),
+    )
+
+
+def update_container_master_customer(conn: Connection, container_id: int, master_customer_id: int | None) -> None:
+    row = conn.execute('SELECT id FROM containers WHERE id=?', (container_id,)).fetchone()
+    if not row:
+        raise ValueError('container not found')
+    cid = None
+    if master_customer_id is not None:
+        cid = to_int(master_customer_id, 0)
+        if cid <= 0:
+            cid = None
+        else:
+            hit = conn.execute('SELECT id FROM customers WHERE id=? AND is_active=1', (cid,)).fetchone()
+            if not hit:
+                raise ValueError('master customer not found')
+            in_container = conn.execute(
+                '''
+                SELECT 1
+                FROM container_items ci
+                JOIN inbound_items i ON i.id = ci.inbound_item_id
+                WHERE ci.container_id=? AND i.customer_id=?
+                LIMIT 1
+                ''',
+                (container_id, cid),
+            ).fetchone()
+            if not in_container:
+                raise ValueError('master customer must have items in current container')
+    conn.execute(
+        'UPDATE containers SET master_customer_id=?, updated_at=? WHERE id=?',
+        (cid, now_ts(), container_id),
     )
 
 
@@ -272,6 +328,7 @@ def remove_item_from_container(conn: Connection, container_id: int, inbound_item
             "UPDATE inbound_items SET status='IN_STOCK', container_id=NULL, updated_at=? WHERE id=?",
             (now_ts(), inbound_item_id),
         )
+        _ensure_master_customer_valid(conn, container_id)
     return cur.rowcount
 
 
@@ -365,12 +422,14 @@ def revoke_container(conn: Connection, container_id: int) -> None:
         (ts, container_id),
     )
     conn.execute('DELETE FROM container_items WHERE container_id=?', (container_id,))
+    _ensure_master_customer_valid(conn, container_id)
 
 
 def list_containers(conn: Connection) -> list[dict]:
     rows = conn.execute(
         '''
         SELECT c.*,
+               mc.name AS master_customer_name,
                COALESCE(SUM(ci.cbm_at_load), 0) AS used_cbm,
                COUNT(ci.id) AS item_count,
                CASE
@@ -386,6 +445,7 @@ def list_containers(conn: Connection) -> list[dict]:
                END AS status_display
         FROM containers c
         LEFT JOIN container_items ci ON ci.container_id = c.id
+        LEFT JOIN customers mc ON mc.id = c.master_customer_id
         GROUP BY c.id
         ORDER BY c.id DESC
         '''
@@ -396,10 +456,12 @@ def list_containers(conn: Connection) -> list[dict]:
 def container_manifest(conn: Connection, container_id: int) -> tuple[dict, list[dict], list[dict]]:
     head = conn.execute(
         '''
-        SELECT c.id, c.container_no, c.status, c.capacity_cbm, c.default_price_per_m3,
+        SELECT c.id, c.container_no, c.status, c.capacity_cbm, c.default_price_per_m3, c.master_customer_id,
+               mc.name AS master_customer_name,
                COALESCE(SUM(ci.cbm_at_load), 0) AS used_cbm, COUNT(ci.id) AS item_count
         FROM containers c
         LEFT JOIN container_items ci ON ci.container_id=c.id
+        LEFT JOIN customers mc ON mc.id = c.master_customer_id
         WHERE c.id=?
         GROUP BY c.id
         ''',
