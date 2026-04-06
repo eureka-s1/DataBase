@@ -6,7 +6,7 @@ import re
 import sys
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import openpyxl
@@ -51,7 +51,13 @@ HEADER_MAP = {
 }
 
 PHONE_RE = re.compile(r"^\d{7,15}$")
-FREIGHT_RE = re.compile(r"CBM\s*FREIGHT", re.I)
+# Some source files contain typo "FEIGHT"; accept both FEIGHT/FREIGHT.
+FREIGHT_RE = re.compile(r"CBM\s*F(?:R)?EIGHT", re.I)
+# Container no variants in source files:
+# - common: 4 letters + 7 digits (e.g. ONEU6363669)
+# - observed: 4 letters + 6 digits (e.g. TRLU711969)
+# - observed: 5 letters + 6/7 digits in some sheets
+CONTAINER_NO_RE = re.compile(r"^[A-Z]{4,5}\d{6,7}$", re.I)
 
 
 @dataclass
@@ -68,6 +74,7 @@ class ParsedItem:
     total_price: float
     deposit_hint: float
     cbm_calculated: float
+    inbound_date_hint: str | None
     source_file: str
     source_sheet: str
     source_row_no: int
@@ -81,6 +88,34 @@ def _to_text(v) -> str:
     if v is None:
         return ""
     return str(v).strip()
+
+
+def _to_ymd(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d")
+    if isinstance(value, date):
+        return value.strftime("%Y-%m-%d")
+    if isinstance(value, (int, float)):
+        # Excel serial date (1900 date system)
+        fv = float(value)
+        if 30000 <= fv <= 70000:
+            d = datetime(1899, 12, 30) + timedelta(days=int(fv))
+            return d.strftime("%Y-%m-%d")
+    s = _to_text(value)
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", "%m/%d/%Y", "%m-%d-%Y"):
+        try:
+            return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    m = re.search(r"(20\d{2})[./-](\d{1,2})[./-](\d{1,2})", s)
+    if m:
+        y, mm, dd = m.groups()
+        return f"{int(y):04d}-{int(mm):02d}-{int(dd):02d}"
+    return None
 
 
 def _first_col_phone_token(v) -> str:
@@ -171,10 +206,51 @@ def _detect_header(rows: list[list], max_scan: int = 120) -> tuple[int, dict[int
 def _last_freight_marker_idx(rows: list[list]) -> int:
     last = -1
     for i, row in enumerate(rows):
-        text = " ".join(_to_text(v) for v in row if _to_text(v))
-        if text and FREIGHT_RE.search(text):
+        if _is_freight_marker_row(row):
             last = i
     return last
+
+
+def _is_container_no_token(value: str) -> bool:
+    token = (value or "").strip().upper().replace(" ", "")
+    if not token:
+        return False
+    return bool(CONTAINER_NO_RE.fullmatch(token))
+
+
+def _is_freight_marker_row(row: list) -> bool:
+    """
+    Marker row rule:
+    - row may or may not contain "CBM FREIGHT/FEIGHT";
+    - container number may appear in non-leading columns;
+    - if any cell contains a container number like "JXLU4327901",
+      treat it as a shipment marker row.
+    """
+    cells = [(idx, _to_text(v)) for idx, v in enumerate(row) if _to_text(v)]
+    if not cells:
+        return False
+    return any(_is_container_no_token(text) for _, text in cells)
+
+
+def _header_like_mapping(row: list) -> dict[int, str]:
+    keys = {k.replace(" ", "").upper(): v for k, v in HEADER_MAP.items()}
+    mapping: dict[int, str] = {}
+    for idx, val in enumerate(row):
+        kk = _norm_header(val)
+        if kk in keys:
+            mapping[idx] = keys[kk]
+    return mapping
+
+
+def _extract_batch_date_from_header_row(row: list, mapping: dict[int, str]) -> str | None:
+    shop_cols = [idx for idx, field in mapping.items() if field == "shop_no"]
+    if not shop_cols:
+        return None
+    shop_idx = min(shop_cols)
+    left_idx = shop_idx - 1
+    if left_idx < 0 or left_idx >= len(row):
+        return None
+    return _to_ymd(row[left_idx])
 
 
 def _extract_phone_from_book(book: list[tuple[str, list[list]]]) -> str | None:
@@ -191,7 +267,7 @@ def _extract_phone_from_book(book: list[tuple[str, list[list]]]) -> str | None:
     return c.most_common(1)[0][0]
 
 
-def _choose_customer_file(folder: Path) -> Path | None:
+def _choose_customer_file(folder: Path, min_file_year: int = 0) -> Path | None:
     files = [
         p
         for p in folder.rglob("*")
@@ -199,6 +275,8 @@ def _choose_customer_file(folder: Path) -> Path | None:
         and p.suffix.lower() in (".xls", ".xlsx")
         and not p.name.startswith("~$")
     ]
+    if min_file_year > 0:
+        files = [p for p in files if datetime.fromtimestamp(p.stat().st_mtime).year >= min_file_year]
     if not files:
         return None
     preferred = [p for p in files if "收货清单" in p.name]
@@ -208,11 +286,14 @@ def _choose_customer_file(folder: Path) -> Path | None:
 
 
 def _collect_customer_folders(data_root: Path) -> list[Path]:
+    chinese_start_re = re.compile(r"^[\u4e00-\u9fff]")
     out = []
     for p in sorted(data_root.iterdir()):
         if not p.is_dir():
             continue
         if p.name in EXCLUDED_TOP_DIRS:
+            continue
+        if chinese_start_re.match(p.name):
             continue
         out.append(p)
     return out
@@ -227,6 +308,7 @@ def _parse_in_stock_from_last_sheet(path: Path, customer_name: str) -> tuple[lis
     sheet_name, rows = picked
     header_idx, mapping = _detect_header(rows)
     marker_idx = _last_freight_marker_idx(rows)
+    current_batch_date = _extract_batch_date_from_header_row(rows[header_idx], mapping)
 
     parsed: list[ParsedItem] = []
     last_shop: str | None = None
@@ -237,8 +319,14 @@ def _parse_in_stock_from_last_sheet(path: Path, customer_name: str) -> tuple[lis
         if abs_idx <= marker_idx:
             continue
 
-        text = " ".join(_to_text(v) for v in row if _to_text(v))
-        if text and FREIGHT_RE.search(text):
+        hm = _header_like_mapping(row)
+        if "shop_no" in hm.values() and (("item_no" in hm.values()) or ("item_name_cn" in hm.values())):
+            next_date = _extract_batch_date_from_header_row(row, hm)
+            if next_date:
+                current_batch_date = next_date
+            continue
+
+        if _is_freight_marker_row(row):
             continue
 
         item = {}
@@ -274,6 +362,7 @@ def _parse_in_stock_from_last_sheet(path: Path, customer_name: str) -> tuple[lis
                 total_price=to_float(item.get("total_price"), 0.0),
                 deposit_hint=to_float(item.get("deposit_hint"), 0.0),
                 cbm_calculated=to_float(item.get("cbm_calculated"), 0.0),
+                inbound_date_hint=current_batch_date,
                 source_file=str(path),
                 source_sheet=sheet_name,
                 source_row_no=row_no,
@@ -312,10 +401,21 @@ def run(args) -> int:
 
         for folder in folders:
             stats["folders_scanned"] += 1
-            picked = _choose_customer_file(folder)
+            picked = _choose_customer_file(folder, min_file_year=args.min_file_year)
             if not picked:
                 stats["folders_no_file"] += 1
                 continue
+
+            # Always ensure customer master exists once a customer file is found,
+            # even if this customer has no in-stock rows to import.
+            if args.dry_run:
+                cid = resolve_customer_id(conn, folder.name)
+                if cid is None:
+                    stats["customers_would_auto_create"] += 1
+            else:
+                cid, created = get_or_create_customer_id(conn, folder.name)
+                if created:
+                    stats["customers_auto_created"] += 1
 
             try:
                 rows, phone, sheet_name, all_sheets_empty = _parse_in_stock_from_last_sheet(picked, folder.name)
@@ -325,23 +425,17 @@ def run(args) -> int:
                     print(f"[PARSE_FAIL] {folder.name}: {e}")
                 continue
 
-            if not rows:
-                if all_sheets_empty:
-                    stats["folders_all_sheets_empty"] += 1
-                    if args.verbose:
-                        print(f"[SKIP_ALL_EMPTY_SHEETS] {folder.name}")
-                stats["folders_no_in_stock_rows"] += 1
-                continue
-
             if args.dry_run:
                 cid = resolve_customer_id(conn, folder.name)
                 if cid is None:
-                    stats["customers_would_auto_create"] += 1
+                    # Should not happen because we counted above; skip DB-touch logic in dry-run.
+                    if not rows:
+                        if all_sheets_empty:
+                            stats["folders_all_sheets_empty"] += 1
+                            if args.verbose:
+                                print(f"[SKIP_ALL_EMPTY_SHEETS] {folder.name}")
+                        stats["folders_no_in_stock_rows"] += 1
                     continue
-            else:
-                cid, created = get_or_create_customer_id(conn, folder.name)
-                if created:
-                    stats["customers_auto_created"] += 1
 
             if phone:
                 c = conn.execute("SELECT phone FROM customers WHERE id=?", (cid,)).fetchone()
@@ -350,7 +444,15 @@ def run(args) -> int:
                     conn.execute("UPDATE customers SET phone=?, updated_at=datetime('now','localtime') WHERE id=?", (phone, cid))
                     stats["customer_phone_filled"] += 1
 
-            inbound_date = args.inbound_date or datetime.fromtimestamp(picked.stat().st_mtime).strftime("%Y-%m-%d")
+            if not rows:
+                if all_sheets_empty:
+                    stats["folders_all_sheets_empty"] += 1
+                    if args.verbose:
+                        print(f"[SKIP_ALL_EMPTY_SHEETS] {folder.name}")
+                stats["folders_no_in_stock_rows"] += 1
+                continue
+
+            file_mtime_date = datetime.fromtimestamp(picked.stat().st_mtime).strftime("%Y-%m-%d")
             for r in rows:
                 stats["rows_candidate"] += 1
                 source_rel = Path(r.source_file).resolve().relative_to(ROOT.resolve())
@@ -366,7 +468,7 @@ def run(args) -> int:
                     "import_batch_id": None,
                     "customer_id": cid,
                     "warehouse_id": warehouse_id,
-                    "inbound_date": inbound_date,
+                    "inbound_date": args.inbound_date or r.inbound_date_hint or file_mtime_date,
                     "shop_no": r.shop_no,
                     "position_or_tel": r.position_or_tel,
                     "item_no": r.item_no,
@@ -418,6 +520,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--customer", action="append", help="Only import specified customer folder name (repeatable)")
     p.add_argument("--limit", type=int, default=0, help="Limit scanned customer folders")
     p.add_argument("--inbound-date", type=str, default="", help="Override inbound date (YYYY-MM-DD)")
+    p.add_argument("--min-file-year", type=int, default=0, help="Only use files with modified year >= this value")
     p.add_argument("--dry-run", action="store_true", default=True, help="Scan and parse without DB insert (default true)")
     p.add_argument("--apply", action="store_true", help="Actually insert rows into DB")
     p.add_argument("--verbose", action="store_true")
