@@ -107,3 +107,33 @@ def pick_work_dir(initial_dir: str | None = None) -> dict:
     if not picked:
         raise ValueError("cancelled")
     return set_work_dir(picked)
+
+
+def pick_receipt_file(initial_dir: str | None = None) -> dict:
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception as e:
+        raise ValueError(f"file dialog unavailable: {e}")
+
+    init_dir = str(initial_dir or get_ui_settings().get("work_dir") or _default_work_dir())
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    picked = filedialog.askopenfilename(
+        title="选择收货清单文件",
+        initialdir=init_dir,
+        filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")],
+    )
+    root.destroy()
+    if not picked:
+        raise ValueError("cancelled")
+
+    p = Path(picked).expanduser().resolve()
+    if not p.exists() or not p.is_file():
+        raise ValueError("file not found")
+    if p.suffix.lower() not in (".xlsx", ".xls"):
+        raise ValueError("only .xlsx/.xls allowed")
+    if "收货清单" not in p.name:
+        raise ValueError("文件名必须包含“收货清单”")
+    return {"file_path": str(p), "filename": p.name}

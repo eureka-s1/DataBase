@@ -3,11 +3,32 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+import re
+import shutil
 from sqlite3 import Connection
+import subprocess
 
 import openpyxl
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+import xlrd
 
 from .common import now_ts, to_float, to_int
+
+
+_FONT_SONGTI = Font(name="宋体", size=11, bold=False)
+_BORDER_THIN = Border(
+    left=Side(style="thin", color="000000"),
+    right=Side(style="thin", color="000000"),
+    top=Side(style="thin", color="000000"),
+    bottom=Side(style="thin", color="000000"),
+)
+
+
+def _style_songti_center_border(cell) -> None:
+    cell.font = _FONT_SONGTI
+    cell.alignment = Alignment(horizontal="center", vertical="center")
+    cell.border = _BORDER_THIN
 
 
 def ensure_sync_columns(conn: Connection) -> None:
@@ -31,6 +52,10 @@ def _find_customer_dir(work_dir: Path, customer_name: str) -> Path | None:
 
 
 def _pick_receipt_xlsx(customer_dir: Path, customer_name: str) -> Path:
+    all_excel = [
+        p for p in customer_dir.rglob("*")
+        if p.is_file() and p.suffix.lower() in (".xls", ".xlsx") and not p.name.startswith("~$")
+    ]
     files = [
         p for p in customer_dir.rglob("*")
         if p.is_file() and p.suffix.lower() == ".xlsx" and not p.name.startswith("~$")
@@ -40,26 +65,334 @@ def _pick_receipt_xlsx(customer_dir: Path, customer_name: str) -> Path:
     if target:
         target.sort(key=lambda p: p.stat().st_mtime, reverse=True)
         return target[0]
-    out = customer_dir / f"{customer_name} 收货清单.xlsx"
-    wb = openpyxl.Workbook()
-    wb.active.title = "Sheet1"
-    wb.save(out)
+    xls_files = [p for p in all_excel if p.suffix.lower() == ".xls"]
+    preferred_xls = [p for p in xls_files if "收货清单" in p.name]
+    if preferred_xls or xls_files:
+        pick_xls = sorted((preferred_xls or xls_files), key=lambda p: p.stat().st_mtime, reverse=True)[0]
+        return _convert_xls_to_xlsx(pick_xls, force=True)
+    if all_excel:
+        names = ", ".join(p.name for p in sorted(all_excel, key=lambda x: x.name)[:3])
+        raise ValueError(f"only .xls found (or no writable .xlsx): {names}")
+    raise ValueError("no writable .xlsx receipt file found in customer folder")
+
+
+def _convert_xls_to_xlsx(xls_path: Path, force: bool = False) -> Path:
+    out = xls_path.with_suffix(".xlsx")
+    if out.exists() and not force:
+        return out
+    converter = shutil.which("soffice") or shutil.which("libreoffice")
+    if converter:
+        cmd = [converter, "--headless", "--convert-to", "xlsx", "--outdir", str(xls_path.parent), str(xls_path)]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        if res.returncode == 0 and out.exists():
+            try:
+                wb2 = openpyxl.load_workbook(out)
+                if wb2.worksheets:
+                    wb2.active = len(wb2.worksheets) - 1
+                    wb2.save(out)
+            except Exception:
+                pass
+            return out
+    # 无外部转换器时，走纯 Python 样式迁移兜底
+    _xls_to_xlsx_preserve_style(xls_path, out)
     return out
 
 
+def _xls_color_hex(book, idx: int) -> str | None:
+    try:
+        c = book.colour_map.get(int(idx))
+        if not c or len(c) < 3:
+            return None
+        r, g, b = int(c[0]), int(c[1]), int(c[2])
+        return f"{r:02X}{g:02X}{b:02X}"
+    except Exception:
+        return None
+
+
+def _xls_border_style(n: int) -> str | None:
+    m = {
+        0: None,
+        1: "thin",
+        2: "medium",
+        3: "dashed",
+        4: "dotted",
+        5: "thick",
+        6: "double",
+        7: "hair",
+        8: "mediumDashed",
+        9: "dashDot",
+        10: "mediumDashDot",
+        11: "dashDotDot",
+        12: "mediumDashDotDot",
+        13: "slantDashDot",
+    }
+    return m.get(int(n), "thin")
+
+
+def _xls_to_xlsx_preserve_style(xls_path: Path, out: Path) -> None:
+    book = xlrd.open_workbook(str(xls_path), formatting_info=True)
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+
+    h_map = {0: None, 1: "left", 2: "center", 3: "right", 4: "fill", 5: "justify", 6: "centerContinuous", 7: "distributed"}
+    v_map = {0: "top", 1: "center", 2: "bottom", 3: "justify", 4: "distributed"}
+
+    for sidx in range(book.nsheets):
+        sh = book.sheet_by_index(sidx)
+        ws = wb.create_sheet(title=(sh.name or f"Sheet{sidx + 1}")[:31])
+
+        # 列宽和行高
+        try:
+            for c in range(sh.ncols):
+                if c in sh.colinfo_map:
+                    ci = sh.colinfo_map[c]
+                    # xls 宽度单位约为 1/256 字符
+                    w = float(ci.width or 0) / 256.0
+                    if w > 0:
+                        ws.column_dimensions[get_column_letter(c + 1)].width = w
+            for r in range(sh.nrows):
+                if r in sh.rowinfo_map:
+                    ri = sh.rowinfo_map[r]
+                    if ri.height and ri.height > 0:
+                        # xls 行高单位 twips (1/20 pt)
+                        ws.row_dimensions[r + 1].height = float(ri.height) / 20.0
+        except Exception:
+            pass
+
+        for r in range(sh.nrows):
+            for c in range(sh.ncols):
+                cell = sh.cell(r, c)
+                xw = ws.cell(r + 1, c + 1)
+
+                # 值
+                if cell.ctype == xlrd.XL_CELL_EMPTY:
+                    pass
+                elif cell.ctype == xlrd.XL_CELL_TEXT:
+                    xw.value = str(cell.value)
+                elif cell.ctype == xlrd.XL_CELL_NUMBER:
+                    v = float(cell.value)
+                    iv = int(v)
+                    xw.value = iv if v == float(iv) else v
+                elif cell.ctype == xlrd.XL_CELL_DATE:
+                    try:
+                        xw.value = xlrd.xldate_as_datetime(cell.value, book.datemode)
+                    except Exception:
+                        xw.value = cell.value
+                elif cell.ctype == xlrd.XL_CELL_BOOLEAN:
+                    xw.value = bool(cell.value)
+                elif cell.ctype == xlrd.XL_CELL_ERROR:
+                    xw.value = None
+                else:
+                    xw.value = cell.value
+
+                # 样式
+                try:
+                    xf = book.xf_list[sh.cell_xf_index(r, c)]
+                except Exception:
+                    xf = None
+                if not xf:
+                    continue
+
+                # 数字格式
+                try:
+                    fmt = book.format_map.get(xf.format_key)
+                    if fmt and getattr(fmt, "format_str", None):
+                        xw.number_format = str(fmt.format_str)
+                except Exception:
+                    pass
+
+                # 字体
+                try:
+                    f = book.font_list[xf.font_index]
+                    color_hex = _xls_color_hex(book, int(getattr(f, "colour_index", 0)))
+                    xw.font = Font(
+                        name=getattr(f, "name", None) or "Calibri",
+                        size=(float(getattr(f, "height", 200)) / 20.0) if getattr(f, "height", None) else 11,
+                        bold=bool(getattr(f, "bold", 0)),
+                        italic=bool(getattr(f, "italic", 0)),
+                        underline="single" if int(getattr(f, "underline_type", 0) or 0) else None,
+                        color=color_hex,
+                    )
+                except Exception:
+                    pass
+
+                # 对齐
+                try:
+                    a = xf.alignment
+                    xw.alignment = Alignment(
+                        horizontal=h_map.get(int(getattr(a, "hor_align", 0) or 0)),
+                        vertical=v_map.get(int(getattr(a, "vert_align", 2) or 2)),
+                        wrap_text=bool(getattr(a, "text_wrapped", 0)),
+                    )
+                except Exception:
+                    pass
+
+                # 填充
+                try:
+                    bg = xf.background
+                    pidx = int(getattr(bg, "pattern_colour_index", 0) or 0)
+                    fill_hex = _xls_color_hex(book, pidx)
+                    if fill_hex:
+                        xw.fill = PatternFill(fill_type="solid", fgColor=fill_hex)
+                except Exception:
+                    pass
+
+                # 边框
+                try:
+                    b = xf.border
+                    left = Side(style=_xls_border_style(int(getattr(b, "left_line_style", 0) or 0)),
+                                color=_xls_color_hex(book, int(getattr(b, "left_colour_index", 0) or 0)))
+                    right = Side(style=_xls_border_style(int(getattr(b, "right_line_style", 0) or 0)),
+                                 color=_xls_color_hex(book, int(getattr(b, "right_colour_index", 0) or 0)))
+                    top = Side(style=_xls_border_style(int(getattr(b, "top_line_style", 0) or 0)),
+                               color=_xls_color_hex(book, int(getattr(b, "top_colour_index", 0) or 0)))
+                    bottom = Side(style=_xls_border_style(int(getattr(b, "bottom_line_style", 0) or 0)),
+                                  color=_xls_color_hex(book, int(getattr(b, "bottom_colour_index", 0) or 0)))
+                    xw.border = Border(left=left, right=right, top=top, bottom=bottom)
+                except Exception:
+                    pass
+
+        # 合并单元格
+        try:
+            for (rlo, rhi, clo, chi) in sh.merged_cells:
+                if rhi > rlo and chi > clo:
+                    ws.merge_cells(start_row=rlo + 1, end_row=rhi, start_column=clo + 1, end_column=chi)
+        except Exception:
+            pass
+
+    if wb.worksheets:
+        wb.active = len(wb.worksheets) - 1
+    wb.save(out)
+
+
 def _ensure_month_sheet(wb, customer_name: str, customer_phone: str | None, year: int, month: int):
-    candidates = [f"{year} {month:02d}", f"{year} {month}"]
+    candidates = [f"{year} {month}", f"{year} {month:02d}"]
     for sname in candidates:
         if sname in wb.sheetnames:
-            return wb[sname]
+            ws = wb[sname]
+            if _sheet_is_blank(ws):
+                _write_section_header(ws, 1, customer_name, customer_phone, year, month)
+            return ws
+    # 兼容异常命名（多空格）
+    wanted = {f"{year} {month}", f"{year} {month:02d}"}
+    for sname in wb.sheetnames:
+        norm = " ".join(str(sname).strip().split())
+        if norm in wanted:
+            ws = wb[sname]
+            if _sheet_is_blank(ws):
+                _write_section_header(ws, 1, customer_name, customer_phone, year, month)
+            return ws
     sname = candidates[0]
     ws = wb.create_sheet(title=sname)
-    ws.cell(1, 1, customer_phone or "")
-    ws.cell(1, 2, f"{customer_name} ORDER {year}-{month}")
-    headers = ["SHOP NO", "TEL", "ITEM NO", "品名", "材质", "CTNS", "QTY", "PRICE", "T.PRICE", "定金", "CBM", "长", "宽", "高"]
+    _write_section_header(ws, 1, customer_name, customer_phone, year, month)
+    headers = ["日期", "SHOP NO", "TEL", "ITEM NO", "品名", "材质", "CTNS", "QTY", "PRICE", "T.PRICE", "定金", "CBM"]
     for i, h in enumerate(headers, start=1):
         ws.cell(2, i, h)
     return ws
+
+
+def _sheet_is_blank(ws) -> bool:
+    max_row = int(ws.max_row or 0)
+    max_col = int(ws.max_column or 0)
+    if max_row <= 1 and max_col <= 1:
+        v = ws.cell(1, 1).value
+        return str(v or "").strip() == ""
+    for r in range(1, max_row + 1):
+        for c in range(1, max_col + 1):
+            if str(ws.cell(r, c).value or "").strip():
+                return False
+    return True
+
+
+def _write_section_header(ws, row_no: int, customer_name: str, customer_phone: str | None, year: int, month: int) -> None:
+    phone_cell = ws.cell(row_no, 1, str(customer_phone or "").strip())
+    _style_songti_center_border(phone_cell)
+    title = ws.cell(row_no, 2, f"{customer_name} ORDER {year}-{month}")
+    title.font = Font(size=24, bold=False)
+    title.alignment = Alignment(horizontal="center", vertical="center")
+    ws.merge_cells(start_row=row_no, start_column=2, end_row=row_no, end_column=11)
+    for c in range(2, 12):
+        ws.cell(row_no, c).border = _BORDER_THIN
+    _style_songti_center_border(ws.cell(row_no, 12, "AUTO"))
+    for c in (13, 14, 15):
+        _style_songti_center_border(ws.cell(row_no, c, ""))
+    headers = ["日期", "SHOP NO", "TEL", "ITEM NO", "品名", "材质", "CTNS", "QTY", "PRICE", "T.PRICE", "定金", "CBM"]
+    for i, h in enumerate(headers, start=1):
+        c = ws.cell(row_no + 1, i, h)
+        _style_songti_center_border(c)
+    for i in (13, 14, 15):
+        c = ws.cell(row_no + 1, i, "")
+        _style_songti_center_border(c)
+    _ensure_column_widths(ws)
+
+
+def _ensure_column_widths(ws) -> None:
+    # 统一列宽放大约 40%，材质列（F）放大约 80%
+    base = {
+        "A": 12,
+        "B": 14,
+        "C": 12,
+        "D": 14,
+        "E": 18,
+        "F": 12,
+        "G": 10,
+        "H": 10,
+        "I": 12,
+        "J": 12,
+        "K": 10,
+        "L": 10,
+        "M": 10,
+        "N": 10,
+        "O": 10,
+    }
+    for col, b in base.items():
+        mul = 1.44 if col == "F" else 1.12
+        ws.column_dimensions[col].width = round(float(b) * mul, 2)
+
+
+_CONTAINER_TOKEN = re.compile(r"(?i)\b(?:[A-Z]{4,5}\d{6,8}|[A-Z]{1,5}\d{5,})\b")
+
+
+def _row_values(ws, row_no: int, max_col: int = 14) -> list[str]:
+    out: list[str] = []
+    for c in range(1, max_col + 1):
+        v = ws.cell(row_no, c).value
+        out.append(str(v or "").strip())
+    return out
+
+
+def _is_settlement_marker_values(values: list[str]) -> bool:
+    text = " ".join(values)
+    return bool(_CONTAINER_TOKEN.search(text))
+
+
+def _is_header_values(values: list[str]) -> bool:
+    joined = " ".join(values).upper()
+    return ("SHOP NO" in joined and "ITEM NO" in joined) or ("日期" in joined and "SHOP NO" in joined)
+
+
+def _sheet_needs_new_section(ws) -> bool:
+    max_row = int(ws.max_row or 0)
+    if max_row <= 0:
+        return False
+    marker_rows: list[int] = []
+    for r in range(1, max_row + 1):
+        vals = _row_values(ws, r)
+        if _is_settlement_marker_values(vals):
+            marker_rows.append(r)
+    if not marker_rows:
+        return False
+    last_marker = marker_rows[-1]
+    for r in range(last_marker + 1, max_row + 1):
+        vals = _row_values(ws, r)
+        if not any(vals):
+            continue
+        if _is_header_values(vals):
+            continue
+        if _is_settlement_marker_values(vals):
+            continue
+        return False
+    return True
 
 
 def list_receipt_sync_batches(conn: Connection, limit: int = 100) -> list[dict]:
@@ -99,8 +432,11 @@ def sync_receipts_by_batch(conn: Connection, batch_id: int, work_dir: Path) -> d
         grouped.setdefault(str(r["customer_name"]), []).append(r)
 
     files_updated = 0
+    updated_files: list[dict] = []
     err: list[str] = []
     row_count = 0
+    row_ptr: dict[tuple[str, int, int], int] = {}
+    first_meta_written: dict[tuple[str, int, int], int] = {}
     for customer_name, items in grouped.items():
         cdir = _find_customer_dir(work_dir, customer_name)
         if not cdir:
@@ -117,26 +453,52 @@ def sync_receipts_by_batch(conn: Connection, batch_id: int, work_dir: Path) -> d
                 except Exception:
                     d = datetime.now()
                 ws = _ensure_month_sheet(wb, customer_name, phone, d.year, d.month)
-                rno = ws.max_row + 1
-                ws.cell(rno, 1, it["shop_no"] or "")
-                ws.cell(rno, 2, it["position_or_tel"] or "")
-                ws.cell(rno, 3, it["item_no"] or "")
-                ws.cell(rno, 4, it["item_name_cn"] or "")
-                ws.cell(rno, 5, it["material"] or "")
-                ws.cell(rno, 6, to_int(it["carton_count"], 0))
-                ws.cell(rno, 7, to_int(it["qty"], 0))
-                ws.cell(rno, 8, to_float(it["unit_price"], 0.0))
-                ws.cell(rno, 9, to_float(it["total_price"], 0.0))
-                ws.cell(rno, 10, to_float(it["deposit_hint"], 0.0))
-                ws.cell(rno, 11, to_float(it["cbm_override"], to_float(it["cbm_calculated"], 0.0)))
-                ws.cell(rno, 12, to_float(it["length_cm"], 0.0))
-                ws.cell(rno, 13, to_float(it["width_cm"], 0.0))
-                ws.cell(rno, 14, to_float(it["height_cm"], 0.0))
+                key = (customer_name, d.year, d.month)
+                if key not in row_ptr:
+                    if _sheet_needs_new_section(ws):
+                        start = ws.max_row + 3
+                        _write_section_header(ws, start, customer_name, phone, d.year, d.month)
+                        row_ptr[key] = start + 2
+                    else:
+                        row_ptr[key] = ws.max_row + 2
+                rno = row_ptr[key]
+                row_ptr[key] = rno + 1
+                if key not in first_meta_written:
+                    col1 = customer_name
+                    first_meta_written[key] = 1
+                elif first_meta_written[key] == 1:
+                    col1 = d.strftime("%Y-%m-%d")
+                    first_meta_written[key] = 2
+                else:
+                    col1 = ""
+                vals = [
+                    col1,
+                    it["shop_no"] or "",
+                    it["position_or_tel"] or "",
+                    it["item_no"] or "",
+                    it["item_name_cn"] or "",
+                    it["material"] or "",
+                    to_int(it["carton_count"], 0),
+                    to_int(it["qty"], 0),
+                    to_float(it["unit_price"], 0.0),
+                    to_float(it["total_price"], 0.0),
+                    to_float(it["deposit_hint"], 0.0),
+                    to_float(it["cbm_override"], to_float(it["cbm_calculated"], 0.0)),
+                    to_float(it["length_cm"], 0.0),
+                    to_float(it["width_cm"], 0.0),
+                    to_float(it["height_cm"], 0.0),
+                ]
+                for cno, v in enumerate(vals, start=1):
+                    cell = ws.cell(rno, cno, v)
+                    _style_songti_center_border(cell)
                 row_count += 1
                 changed = True
             if changed:
+                if wb.worksheets:
+                    wb.active = len(wb.worksheets) - 1
                 wb.save(xlsx)
                 files_updated += 1
+                updated_files.append({"customer_name": customer_name, "file_path": str(xlsx)})
         except Exception as e:
             err.append(f"{customer_name}: {e}")
 
@@ -146,6 +508,7 @@ def sync_receipts_by_batch(conn: Connection, batch_id: int, work_dir: Path) -> d
         "customers": len(grouped),
         "rows": row_count,
         "files_updated": files_updated,
+        "updated_files": updated_files,
         "errors": err,
     }
 
@@ -189,6 +552,7 @@ def sync_outbound_container(conn: Connection, container_id: int, work_dir: Path)
         return {"container_id": container_id, "customers": 0, "files_updated": 0, "errors": ["container has no items"]}
 
     files_updated = 0
+    updated_files: list[dict] = []
     err: list[str] = []
     date_text = datetime.now().strftime("%Y/%m/%d")
     unit_price = to_float(c["default_price_per_m3"], 0.0)
@@ -214,13 +578,22 @@ def sync_outbound_container(conn: Connection, container_id: int, work_dir: Path)
             ws.cell(row_no, 8, date_text)
             ws.cell(row_no, 9, f"{cbm} CBM FREIGHT")
             ws.cell(row_no, 11, freight_usd)
+            if wb.worksheets:
+                wb.active = len(wb.worksheets) - 1
             wb.save(xlsx)
             files_updated += 1
+            updated_files.append({"customer_name": name, "file_path": str(xlsx)})
         except Exception as e:
             err.append(f"{name}: {e}")
 
     conn.execute("UPDATE containers SET outbound_synced_at=?, updated_at=? WHERE id=?", (now_ts(), now_ts(), container_id))
-    return {"container_id": container_id, "customers": len(rows), "files_updated": files_updated, "errors": err}
+    return {
+        "container_id": container_id,
+        "customers": len(rows),
+        "files_updated": files_updated,
+        "updated_files": updated_files,
+        "errors": err,
+    }
 
 
 @dataclass
@@ -232,7 +605,8 @@ class MonthlyUpdateResult:
 
 
 def monthly_create_sheet(work_dir: Path, year: int, month: int) -> MonthlyUpdateResult:
-    ym = f"{year:04d} {month:02d}"
+    ym = f"{year:04d} {month}"
+    ym_alt = f"{year:04d} {month:02d}"
     files = [
         p for p in work_dir.rglob("*")
         if p.is_file() and p.suffix.lower() == ".xlsx" and not p.name.startswith("~$") and "收货清单" in p.name
@@ -242,8 +616,11 @@ def monthly_create_sheet(work_dir: Path, year: int, month: int) -> MonthlyUpdate
     for p in files:
         try:
             wb = openpyxl.load_workbook(p)
-            if ym not in wb.sheetnames:
+            names_norm = {" ".join(str(x).strip().split()) for x in wb.sheetnames}
+            if ym not in names_norm and ym_alt not in names_norm:
                 wb.create_sheet(title=ym)
+                if wb.worksheets:
+                    wb.active = len(wb.worksheets) - 1
                 wb.save(p)
                 updated += 1
         except Exception as e:

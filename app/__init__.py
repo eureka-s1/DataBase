@@ -59,6 +59,7 @@ from .services.reports import (
 from .services.ui_settings import (
     get_ui_settings,
     list_receipt_files,
+    pick_receipt_file,
     pick_work_dir,
     set_monthly_auto_enabled,
     set_monthly_last_run_ym,
@@ -621,6 +622,12 @@ def create_app() -> Flask:
         files = list_receipt_files(s.get('work_dir', ''), limit=limit)
         return {'work_dir': s.get('work_dir', ''), 'files': files}
 
+    @app.route('/import/inbound/pick-file', methods=['POST'])
+    @login_required
+    def import_pick_file_api():
+        payload = request.get_json(force=True) or {}
+        return pick_receipt_file(payload.get('initial_dir'))
+
     @app.route('/import/inbound/execute', methods=['POST'])
     @login_required
     def import_execute_api():
@@ -793,7 +800,7 @@ def create_app() -> Flask:
         from datetime import datetime
 
         now = datetime.now()
-        ym = f'{now.year:04d} {now.month:02d}'
+        ym = f'{now.year:04d} {now.month}'
         should_prompt = bool(s.get('monthly_auto_enabled')) and now.day == 1 and str(s.get('monthly_last_run_ym') or '') != ym
         return {
             'today': now.strftime('%Y-%m-%d'),

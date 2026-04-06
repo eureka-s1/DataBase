@@ -673,20 +673,12 @@
         <div class="grid-2">
           <div class="card">
             <h3>手动导入收货清单</h3>
-            <div class="sec-title">0) 从工作目录选择（优先）</div>
-            <div class="small" id="importWorkDirHint" style="margin:0 0 6px;">工作目录：未设置</div>
-            <form id="formImportPickWorkdir" class="inline">
-              <label>工作目录文件
-                <select id="importWorkdirFileSelect" name="workdir_file"></select>
-              </label>
-              <button class="btn" id="btnRefreshWorkdirFiles" type="button">刷新目录文件</button>
-              <button class="btn" type="submit">使用该文件</button>
-            </form>
-            <div class="sec-title">1) 上传并预览</div>
+            <div class="sec-title">1) 选择并预览</div>
             <form id="formImportUpload" class="inline">
               <label>选择文件
                 <input id="importFileInput" name="file" type="file" accept=".xlsx,.xls" required>
               </label>
+              <button class="btn" id="btnPickImportFile" type="button">系统选择文件</button>
               <button class="btn" type="submit">上传收货清单</button>
             </form>
             <div class="small" id="importUploadState" style="margin-top:6px;">仅支持文件名包含“收货清单”的 Excel</div>
@@ -822,7 +814,7 @@
           </div>
           <div class="card">
             <h3>月份更新</h3>
-            <div class="small">每月第一天可自动创建客户文件新月份 Sheet（`yyyy mm`），也可手动执行。</div>
+            <div class="small">每月第一天可自动创建客户文件新月份 Sheet（`yyyy m`），也可手动执行。</div>
             <form id="formMonthlyAutoSetting" class="inline" style="margin-top:8px;">
               <label>自动分 Sheet
                 <select id="monthlyAutoEnabled" name="monthly_auto_enabled">
@@ -1025,24 +1017,12 @@
       const wd = String(state.settings.work_dir || '').trim();
       if (byId('workDirCurrent')) byId('workDirCurrent').textContent = wd ? `当前工作目录：${wd}` : '当前工作目录：未设置';
       if (byId('workDirInput')) byId('workDirInput').value = wd;
-      if (byId('importWorkDirHint')) byId('importWorkDirHint').textContent = wd ? `工作目录：${wd}` : '工作目录：未设置';
       if (byId('histImportWorkDirHint')) byId('histImportWorkDirHint').textContent = wd ? `工作目录：${wd}` : '工作目录：未设置';
       if (byId('monthlyAutoEnabled')) byId('monthlyAutoEnabled').value = state.settings.monthly_auto_enabled ? '1' : '0';
       if (byId('monthlySyncStatus')) {
         const ym = String(state.settings.monthly_last_run_ym || '').trim() || '未执行';
         byId('monthlySyncStatus').textContent = `自动分Sheet：${state.settings.monthly_auto_enabled ? '启用' : '关闭'}；上次执行月份：${ym}`;
       }
-    }
-
-    async function refreshWorkDirImportFiles() {
-      const r = await api('/import/inbound/workdir-files?limit=300');
-      const files = Array.isArray(r.files) ? r.files : [];
-      const el = byId('importWorkdirFileSelect');
-      if (!el) return;
-      const opts = ['<option value="">请选择工作目录内收货清单</option>'].concat(
-        files.map(f => `<option value="${String(f.path || '').replace(/"/g, '&quot;')}">${f.rel_path || f.filename || f.path}</option>`)
-      );
-      el.innerHTML = opts.join('');
     }
 
     async function refreshSyncReceipts(limit = 100) {
@@ -1159,9 +1139,7 @@
       const p = parseDateParts(value);
       if (!p) return String(value || '');
       const date = `${p.y}-${_pad2(p.mo)}-${_pad2(p.d)}`;
-      if (!withTime || p.hh === null || p.mm === null) return date;
-      const sec = p.ss === null ? '00' : _pad2(p.ss);
-      return `${date} ${_pad2(p.hh)}:${_pad2(p.mm)}:${sec}`;
+      return date;
     }
 
     function formatDateInputValue(value) {
@@ -1246,9 +1224,9 @@
       const start = (state.customersPage - 1) * pageSize;
       const pageRows = allRows.slice(start, start + pageSize);
       const rows = pageRows.map(c =>
-        `<tr><td>${c.id}</td><td>${c.customer_code || ''}</td><td>${c.name || ''}</td><td>${(c.aliases || []).join(' / ')}</td><td>${signedMoneyText(ledgerMap.get(Number(c.id)) || 0)}</td></tr>`
+        `<tr><td>${c.id}</td><td>${c.customer_code || ''}</td><td>${c.name || ''}</td><td>${c.phone || ''}</td><td>${(c.aliases || []).join(' / ')}</td><td>${signedMoneyText(ledgerMap.get(Number(c.id)) || 0)}</td></tr>`
       );
-      renderTable(document.getElementById('tableCustomers'), ['ID', '编码', '客户名', '别名', `净余额(${moneyUnit()})`], rows);
+      renderTable(document.getElementById('tableCustomers'), ['ID', '编码', '客户名', '电话', '别名', `净余额(${moneyUnit()})`], rows);
       byId('customersPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.customersPage}/${totalPages} 页`;
     }
 
@@ -2305,29 +2283,7 @@
           setMsg(`拆分CTN必须是 1 到 ${cartons - 1} 的整数`, false);
           return;
         }
-        const src = state.plannerAvailable.find(x => Number(x.id) === itemId) || {};
-        const dftL = Number(src.length_cm || 0);
-        const dftW = Number(src.width_cm || 0);
-        const dftH = Number(src.height_cm || 0);
-        const lenRaw = prompt('请输入拆分后长(cm)，留空使用原值', dftL ? String(dftL) : '');
-        if (lenRaw === null) return;
-        const widRaw = prompt('请输入拆分后宽(cm)，留空使用原值', dftW ? String(dftW) : '');
-        if (widRaw === null) return;
-        const heiRaw = prompt('请输入拆分后高(cm)，留空使用原值', dftH ? String(dftH) : '');
-        if (heiRaw === null) return;
         const payload = { split_cartons: splitCartons };
-        const putDim = (k, rawV, fallbackV) => {
-          const s = String(rawV || '').trim();
-          if (!s) {
-            if (Number.isFinite(fallbackV) && fallbackV > 0) payload[k] = fallbackV;
-            return;
-          }
-          const n = Number(s);
-          if (Number.isFinite(n) && n > 0) payload[k] = n;
-        };
-        putDim('length_cm', lenRaw, dftL);
-        putDim('width_cm', widRaw, dftW);
-        putDim('height_cm', heiRaw, dftH);
         if (!confirm(`确认将货物 ${itemId}${isMergedItem ? '（合并字段）' : ''} 按 ${splitCartons}/${cartons} CTN 进行拆货吗？`)) return;
         try {
           const r = await api(`/inbound-items/${itemId}/split-by-cartons`, 'POST', payload);
@@ -2611,28 +2567,20 @@
           setMsg('收货清单上传成功');
         } catch (err) { setMsg(err.message, false); }
       };
-      byId('btnRefreshWorkdirFiles').onclick = async () => {
+      byId('btnPickImportFile').onclick = async () => {
         try {
-          await refreshSettings();
-          await refreshWorkDirImportFiles();
-          await refreshSyncReceipts(100).catch(() => {});
-          await refreshSyncOutbound(300).catch(() => {});
-          setMsg('工作目录文件列表已刷新');
-        } catch (err) { setMsg(err.message, false); }
-      };
-      byId('formImportPickWorkdir').onsubmit = async (e) => {
-        e.preventDefault();
-        const f = new FormData(e.target);
-        const p = String(f.get('workdir_file') || '').trim();
-        if (!p) {
-          setMsg('请先选择工作目录文件', false);
-          return;
+          const initial = String(state.settings?.work_dir || byId('workDirInput')?.value || '').trim();
+          const r = await api('/import/inbound/pick-file', 'POST', { initial_dir: initial || null });
+          setImportFilePath(r.file_path, r.filename);
+          setMsg('已通过系统资源管理器选择文件');
+        } catch (err) {
+          if (String(err.message || '').toLowerCase().includes('cancelled')) {
+            setMsg('已取消选择文件');
+          } else {
+            setMsg(err.message, false);
+          }
         }
-        const filename = p.split('/').pop()?.split('\\\\').pop() || '';
-        setImportFilePath(p, filename);
-        setMsg('已选中工作目录文件');
       };
-
       byId('formImportPreview').onsubmit = async (e) => {
         e.preventDefault();
         const f = new FormData(e.target);
@@ -2869,7 +2817,13 @@
         try {
           showRunningModal(`批次 ${batchId} 收货同步正在运行...`, '正在执行');
           const r = await api(`/sync/receipts/batch/${batchId}`, 'POST', {});
-          finishRunningModal(`批次 ${batchId} 同步完成：更新文件 ${r.files_updated || 0} 个，写入 ${r.rows || 0} 行。`, '执行完成');
+          const details = (Array.isArray(r.updated_files) ? r.updated_files : [])
+            .map(x => `- ${x.customer_name || ''}: ${x.file_path || ''}`)
+            .join('\n');
+          finishRunningModal(
+            `批次 ${batchId} 同步完成：更新文件 ${r.files_updated || 0} 个，写入 ${r.rows || 0} 行。${details ? `\n\n已更新文件：\n${details}` : ''}`,
+            '执行完成'
+          );
           await refreshSyncReceipts();
         } catch (err) {
           finishRunningModal(`收货同步失败：${err.message}`, '执行失败');
@@ -2893,7 +2847,13 @@
         try {
           showRunningModal(`柜次 ${containerId} 出仓同步正在运行...`, '正在执行');
           const r = await api(`/sync/outbound/container/${containerId}`, 'POST', {});
-          finishRunningModal(`柜次 ${containerId} 同步完成：更新文件 ${r.files_updated || 0} 个。`, '执行完成');
+          const details = (Array.isArray(r.updated_files) ? r.updated_files : [])
+            .map(x => `- ${x.customer_name || ''}: ${x.file_path || ''}`)
+            .join('\n');
+          finishRunningModal(
+            `柜次 ${containerId} 同步完成：更新文件 ${r.files_updated || 0} 个。${details ? `\n\n已更新文件：\n${details}` : ''}`,
+            '执行完成'
+          );
           await refreshSyncOutbound();
         } catch (err) {
           finishRunningModal(`出仓同步失败：${err.message}`, '执行失败');
@@ -2951,7 +2911,6 @@
         try {
           await api('/settings/work-dir', 'PUT', { work_dir: wd });
           await refreshSettings();
-          await refreshWorkDirImportFiles();
           await refreshSyncReceipts(100).catch(() => {});
           await refreshSyncOutbound(300).catch(() => {});
           setMsg('工作目录已更新');
@@ -2963,7 +2922,6 @@
           const r = await api('/settings/work-dir/pick', 'POST', { initial_dir: initial || null });
           if (byId('workDirInput')) byId('workDirInput').value = String(r.work_dir || '');
           await refreshSettings();
-          await refreshWorkDirImportFiles();
           await refreshSyncReceipts(100).catch(() => {});
           await refreshSyncOutbound(300).catch(() => {});
           setMsg('工作目录已通过文件管理器更新');
@@ -3000,7 +2958,6 @@
     refreshImportBatches('', '', 20).catch(() => {});
     refreshPlannerData().catch(() => {});
     refreshSettings().then(async () => {
-      await refreshWorkDirImportFiles();
       await refreshSyncReceipts(100).catch(() => {});
       await refreshSyncOutbound(300).catch(() => {});
       await maybePromptMonthlyAutoRun().catch(() => {});
