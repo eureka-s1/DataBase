@@ -921,7 +921,22 @@
     function showDoneModal(text, title = '操作完成') {
       byId('doneModalTitle').textContent = title;
       byId('doneModalText').textContent = text;
+      const ok = byId('btnDoneModalOk');
+      if (ok) ok.style.display = '';
       byId('doneModal').classList.add('show');
+    }
+    function showRunningModal(text, title = '正在执行') {
+      byId('doneModalTitle').textContent = title;
+      byId('doneModalText').textContent = text;
+      const ok = byId('btnDoneModalOk');
+      if (ok) ok.style.display = 'none';
+      byId('doneModal').classList.add('show');
+    }
+    function finishRunningModal(text, title = '执行完成') {
+      byId('doneModalTitle').textContent = title;
+      byId('doneModalText').textContent = text;
+      const ok = byId('btnDoneModalOk');
+      if (ok) ok.style.display = '';
     }
     function hideDoneModal() {
       byId('doneModal').classList.remove('show');
@@ -2577,6 +2592,7 @@
         }
         if (!dryRun && !confirm('将执行写库导入，确认继续？')) return;
         try {
+          showRunningModal('历史在库导入正在运行，请稍候...', '正在导入');
           const r = await api('/import/historical-in-stock/execute', 'POST', {
             dry_run: dryRun,
             min_file_year: minYear || 0,
@@ -2584,15 +2600,18 @@
           byId('ioResult').textContent = JSON.stringify(r, null, 2);
           if (dryRun) {
             setMsg('历史在库导入演练完成');
-            showDoneModal(`历史在库导入演练完成。扫描 ${r.stats?.folders_scanned || 0} 个目录，候选 ${r.stats?.rows_candidate || 0} 条。`, '执行完成');
+            finishRunningModal(`历史在库导入演练完成。扫描 ${r.stats?.folders_scanned || 0} 个目录，候选 ${r.stats?.rows_candidate || 0} 条。`, '执行完成');
           } else {
             await refreshCustomers();
             await runInboundQuery(true);
             await refreshSummary();
             setMsg('历史在库导入完成');
-            showDoneModal(`历史在库导入完成。写入 ${r.stats?.rows_inserted || 0} 条，客户新增 ${r.stats?.customers_auto_created || 0}。`, '执行完成');
+            finishRunningModal(`历史在库导入完成。写入 ${r.stats?.rows_inserted || 0} 条，客户新增 ${r.stats?.customers_auto_created || 0}。`, '执行完成');
           }
-        } catch (err) { setMsg(err.message, false); }
+        } catch (err) {
+          setMsg(err.message, false);
+          finishRunningModal(`历史在库导入失败：${err.message}`, '执行失败');
+        }
       };
 
       byId('btnClosePreview').onclick = () => {
