@@ -32,7 +32,13 @@ def get_ui_settings() -> dict:
     wd = str(data.get("work_dir") or "").strip()
     if not wd:
         wd = str(_default_work_dir())
-    return {"work_dir": wd}
+    monthly_auto_enabled = bool(data.get("monthly_auto_enabled", True))
+    monthly_last_run_ym = str(data.get("monthly_last_run_ym") or "").strip()
+    return {
+        "work_dir": wd,
+        "monthly_auto_enabled": monthly_auto_enabled,
+        "monthly_last_run_ym": monthly_last_run_ym,
+    }
 
 
 def set_work_dir(path_text: str) -> dict:
@@ -42,7 +48,22 @@ def set_work_dir(path_text: str) -> dict:
     data = _load()
     data["work_dir"] = str(p)
     _save(data)
-    return {"work_dir": str(p)}
+    return get_ui_settings()
+
+
+def set_monthly_auto_enabled(enabled: bool) -> dict:
+    data = _load()
+    data["monthly_auto_enabled"] = bool(enabled)
+    _save(data)
+    return get_ui_settings()
+
+
+def set_monthly_last_run_ym(ym: str) -> dict:
+    v = str(ym or "").strip()
+    data = _load()
+    data["monthly_last_run_ym"] = v
+    _save(data)
+    return get_ui_settings()
 
 
 def list_receipt_files(work_dir: str, limit: int = 200) -> list[dict]:

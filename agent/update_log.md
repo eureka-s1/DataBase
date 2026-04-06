@@ -815,5 +815,27 @@
     - 开始执行后立即弹窗提示“正在导入”；
     - 运行期间隐藏关闭按钮，避免误判为已结束；
     - 任务结束后更新弹窗内容并显示“关闭”按钮。
-  - 失败场景同样在弹窗中展示错误信息并允许关闭。
+- 失败场景同样在弹窗中展示错误信息并允许关闭。
 - 更新原因：提升“执行历史在库导入”过程的确认感与可见性，降低等待过程中的不确定性。
+
+### 63. 新增“文件同步”一级功能（收货同步 / 出仓同步 / 月份更新）
+- 时间：2026-04-06
+- 更新内容：
+  - 后端新增文件同步服务 `app/services/file_sync.py` 并接入路由：
+    - `GET /sync/receipts/batches`、`POST /sync/receipts/batch/<batch_id>`（收货同步）
+    - `GET /sync/outbound/containers`、`POST /sync/outbound/container/<container_id>`（出仓同步）
+    - `PUT /sync/monthly/settings`、`POST /sync/monthly/execute`、`GET /sync/monthly/auto-status`（月份更新）
+  - 新增同步状态持久字段（自动补列）：
+    - `import_batches.receipt_synced_at`
+    - `containers.outbound_synced_at`
+  - 设置项扩展：
+    - `ui_settings` 新增 `monthly_auto_enabled`、`monthly_last_run_ym`。
+  - 前端新增一级菜单“文件同步”及三个二级功能：
+    - 收货同步：显示导入批次是否已同步，可按批次执行同步；
+    - 出仓同步：显示已确认柜次是否已同步，可按柜次执行同步；
+    - 月份更新：自动分 Sheet 开关 + 手动更新（含确认弹窗）。
+  - 交互增强：
+    - 收货/出仓/月份更新均加入运行中反馈弹窗；
+    - 自动月份更新在每月 1 日首次触发前先弹窗确认；
+    - 月份 Sheet 命名规范化为 `yyyy mm`（如 `2026 04`）。
+- 更新原因：落实 pipeline 中“导入后回写客户文件、出仓后回写结算标记、按月分 Sheet”的闭环流程。

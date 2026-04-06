@@ -56,7 +56,22 @@ from .services.reports import (
     export_statement_excel,
     export_statement_pdf,
 )
-from .services.ui_settings import get_ui_settings, list_receipt_files, pick_work_dir, set_work_dir
+from .services.ui_settings import (
+    get_ui_settings,
+    list_receipt_files,
+    pick_work_dir,
+    set_monthly_auto_enabled,
+    set_monthly_last_run_ym,
+    set_work_dir,
+)
+from .services.file_sync import (
+    ensure_sync_columns,
+    list_outbound_sync_containers,
+    list_receipt_sync_batches,
+    monthly_create_sheet,
+    sync_outbound_container,
+    sync_receipts_by_batch,
+)
 import scripts.import_historical_in_stock as hist_import
 
 
@@ -700,6 +715,93 @@ def create_app() -> Flask:
     def settings_work_dir_pick_api():
         payload = request.get_json(force=True) or {}
         return pick_work_dir(payload.get('initial_dir'))
+
+    @app.route('/sync/receipts/batches', methods=['GET'])
+    @login_required
+    def sync_receipt_batches_api():
+        limit = max(1, min(1000, int((request.args.get('limit') or '200').strip())))
+        with db_session() as conn:
+            ensure_sync_columns(conn)
+            rows = list_receipt_sync_batches(conn, limit=limit)
+        return jsonify(rows)
+
+    @app.route('/sync/receipts/batch/<int:batch_id>', methods=['POST'])
+    @login_required
+    def sync_receipt_batch_execute_api(batch_id: int):
+        s = get_ui_settings()
+        work_dir = Path(s.get('work_dir') or '').expanduser().resolve()
+        if not work_dir.exists() or not work_dir.is_dir():
+            return {'error': 'work directory not found'}, 400
+        with db_session() as conn:
+            ensure_sync_columns(conn)
+            result = sync_receipts_by_batch(conn, batch_id, work_dir)
+        return result
+
+    @app.route('/sync/outbound/containers', methods=['GET'])
+    @login_required
+    def sync_outbound_containers_api():
+        limit = max(1, min(1000, int((request.args.get('limit') or '300').strip())))
+        with db_session() as conn:
+            ensure_sync_columns(conn)
+            rows = list_outbound_sync_containers(conn, limit=limit)
+        return jsonify(rows)
+
+    @app.route('/sync/outbound/container/<int:container_id>', methods=['POST'])
+    @login_required
+    def sync_outbound_container_execute_api(container_id: int):
+        s = get_ui_settings()
+        work_dir = Path(s.get('work_dir') or '').expanduser().resolve()
+        if not work_dir.exists() or not work_dir.is_dir():
+            return {'error': 'work directory not found'}, 400
+        with db_session() as conn:
+            ensure_sync_columns(conn)
+            result = sync_outbound_container(conn, container_id, work_dir)
+        return result
+
+    @app.route('/sync/monthly/settings', methods=['PUT'])
+    @login_required
+    def sync_monthly_settings_api():
+        payload = request.get_json(force=True) or {}
+        enabled = bool(payload.get('monthly_auto_enabled', True))
+        return set_monthly_auto_enabled(enabled)
+
+    @app.route('/sync/monthly/execute', methods=['POST'])
+    @login_required
+    def sync_monthly_execute_api():
+        payload = request.get_json(force=True) or {}
+        year = int(payload.get('year') or 0)
+        month = int(payload.get('month') or 0)
+        if year < 2000 or year > 2100 or month < 1 or month > 12:
+            return {'error': 'invalid year/month'}, 400
+        s = get_ui_settings()
+        work_dir = Path(s.get('work_dir') or '').expanduser().resolve()
+        if not work_dir.exists() or not work_dir.is_dir():
+            return {'error': 'work directory not found'}, 400
+        result = monthly_create_sheet(work_dir, year, month)
+        set_monthly_last_run_ym(result.ym)
+        return {
+            'ym': result.ym,
+            'files_scanned': result.files_scanned,
+            'files_updated': result.files_updated,
+            'errors': result.errors,
+        }
+
+    @app.route('/sync/monthly/auto-status', methods=['GET'])
+    @login_required
+    def sync_monthly_auto_status_api():
+        s = get_ui_settings()
+        from datetime import datetime
+
+        now = datetime.now()
+        ym = f'{now.year:04d} {now.month:02d}'
+        should_prompt = bool(s.get('monthly_auto_enabled')) and now.day == 1 and str(s.get('monthly_last_run_ym') or '') != ym
+        return {
+            'today': now.strftime('%Y-%m-%d'),
+            'ym': ym,
+            'monthly_auto_enabled': bool(s.get('monthly_auto_enabled')),
+            'monthly_last_run_ym': str(s.get('monthly_last_run_ym') or ''),
+            'should_prompt': should_prompt,
+        }
 
     @app.route('/ui/dashboard', methods=['GET'])
     @login_required

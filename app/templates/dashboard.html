@@ -240,6 +240,7 @@
         <button class="tab-btn" data-tab="container">货柜管理</button>
         <button class="tab-btn" data-tab="finance">资金结算</button>
         <button class="tab-btn" data-tab="io">导入导出</button>
+        <button class="tab-btn" data-tab="filesync">文件同步</button>
         <button class="tab-btn" data-tab="settings">设置</button>
       </div>
     </aside>
@@ -787,6 +788,60 @@
         </div>
       </section>
 
+      <section class="panel" id="panel-filesync">
+        <div class="grid-2">
+          <div class="card">
+            <h3>收货同步</h3>
+            <div class="small">将导入批次写入客户文件夹对应月份 Sheet，并显示同步状态。</div>
+            <form id="formSyncReceiptsQuery" class="inline" style="margin-top:8px;">
+              <label>最近批次数
+                <select name="limit">
+                  <option value="50">50</option>
+                  <option value="100" selected>100</option>
+                  <option value="200">200</option>
+                </select>
+              </label>
+              <button class="btn" type="submit">刷新批次</button>
+            </form>
+            <table id="tableSyncReceipts" style="margin-top:8px;"></table>
+          </div>
+          <div class="card">
+            <h3>出仓同步</h3>
+            <div class="small">将已确认出仓柜次写入客户文件末尾“柜次出仓/运费结算标记行”。</div>
+            <form id="formSyncOutboundQuery" class="inline" style="margin-top:8px;">
+              <label>最近柜次数
+                <select name="limit">
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                  <option value="300" selected>300</option>
+                </select>
+              </label>
+              <button class="btn" type="submit">刷新柜次</button>
+            </form>
+            <table id="tableSyncOutbound" style="margin-top:8px;"></table>
+          </div>
+          <div class="card">
+            <h3>月份更新</h3>
+            <div class="small">每月第一天可自动创建客户文件新月份 Sheet（`yyyy mm`），也可手动执行。</div>
+            <form id="formMonthlyAutoSetting" class="inline" style="margin-top:8px;">
+              <label>自动分 Sheet
+                <select id="monthlyAutoEnabled" name="monthly_auto_enabled">
+                  <option value="1">启用（默认）</option>
+                  <option value="0">关闭（仅手动）</option>
+                </select>
+              </label>
+              <button class="btn" type="submit">保存设置</button>
+            </form>
+            <form id="formMonthlyExecute" class="inline" style="margin-top:8px;">
+              <label>年份<input id="monthlyYear" name="year" type="number" min="2000" max="2100" required></label>
+              <label>月份<input id="monthlyMonth" name="month" type="number" min="1" max="12" required></label>
+              <button class="btn primary" type="submit">手动更新月份 Sheet</button>
+            </form>
+            <div id="monthlySyncStatus" class="small" style="margin-top:8px;"></div>
+          </div>
+        </div>
+      </section>
+
       <section class="panel" id="panel-settings">
         <div class="card">
           <h3>工作目录</h3>
@@ -835,6 +890,8 @@
       ledgerPage: 1,
       ledgerPageSize: 50,
       importBatches: [],
+      syncReceiptBatches: [],
+      syncOutboundContainers: [],
       settings: { work_dir: '' },
       plannerAvailable: [],
       plannerSelected: [],
@@ -964,12 +1021,17 @@
 
     async function refreshSettings() {
       const s = await api('/settings');
-      state.settings = s || { work_dir: '' };
+      state.settings = s || { work_dir: '', monthly_auto_enabled: true, monthly_last_run_ym: '' };
       const wd = String(state.settings.work_dir || '').trim();
       if (byId('workDirCurrent')) byId('workDirCurrent').textContent = wd ? `当前工作目录：${wd}` : '当前工作目录：未设置';
       if (byId('workDirInput')) byId('workDirInput').value = wd;
       if (byId('importWorkDirHint')) byId('importWorkDirHint').textContent = wd ? `工作目录：${wd}` : '工作目录：未设置';
       if (byId('histImportWorkDirHint')) byId('histImportWorkDirHint').textContent = wd ? `工作目录：${wd}` : '工作目录：未设置';
+      if (byId('monthlyAutoEnabled')) byId('monthlyAutoEnabled').value = state.settings.monthly_auto_enabled ? '1' : '0';
+      if (byId('monthlySyncStatus')) {
+        const ym = String(state.settings.monthly_last_run_ym || '').trim() || '未执行';
+        byId('monthlySyncStatus').textContent = `自动分Sheet：${state.settings.monthly_auto_enabled ? '启用' : '关闭'}；上次执行月份：${ym}`;
+      }
     }
 
     async function refreshWorkDirImportFiles() {
@@ -981,6 +1043,55 @@
         files.map(f => `<option value="${String(f.path || '').replace(/"/g, '&quot;')}">${f.rel_path || f.filename || f.path}</option>`)
       );
       el.innerHTML = opts.join('');
+    }
+
+    async function refreshSyncReceipts(limit = 100) {
+      state.syncReceiptBatches = await api(`/sync/receipts/batches?limit=${encodeURIComponent(String(limit || 100))}`);
+      const rows = (state.syncReceiptBatches || []).map(b => {
+        const synced = String(b.receipt_synced_at || '').trim();
+        const status = synced ? `已同步 ${formatDateDisplay(synced, true)}` : '未同步';
+        return `<tr>
+          <td>${b.batch_id ?? ''}</td>
+          <td>${b.batch_no || ''}</td>
+          <td>${b.success_rows ?? 0}</td>
+          <td>${b.item_rows ?? 0}</td>
+          <td>${status}</td>
+          <td><button class="btn btnSyncReceiptBatch" data-batch-id="${b.batch_id}">执行同步</button></td>
+        </tr>`;
+      });
+      renderTable(byId('tableSyncReceipts'), ['批次ID', '批次号', '导入成功行', '当前货物行', '同步状态', '操作'], rows);
+    }
+
+    async function refreshSyncOutbound(limit = 300) {
+      state.syncOutboundContainers = await api(`/sync/outbound/containers?limit=${encodeURIComponent(String(limit || 300))}`);
+      const rows = (state.syncOutboundContainers || []).map(c => {
+        const synced = String(c.outbound_synced_at || '').trim();
+        const status = synced ? `已同步 ${formatDateDisplay(synced, true)}` : '未同步';
+        return `<tr>
+          <td>${c.id ?? ''}</td>
+          <td>${c.container_no || ''}</td>
+          <td>${c.item_count ?? 0}</td>
+          <td>${status}</td>
+          <td><button class="btn btnSyncOutboundContainer" data-container-id="${c.id}">执行同步</button></td>
+        </tr>`;
+      });
+      renderTable(byId('tableSyncOutbound'), ['柜次ID', '柜号', '货物条数', '同步状态', '操作'], rows);
+    }
+
+    async function maybePromptMonthlyAutoRun() {
+      const status = await api('/sync/monthly/auto-status');
+      if (!status.should_prompt) return;
+      const ok = confirm(`今天是 ${status.today}，将执行 ${status.ym} 月份 Sheet 自动更新，是否继续？`);
+      if (!ok) return;
+      showRunningModal(`正在自动更新 ${status.ym} 月份 Sheet...`, '正在执行');
+      const [y, m] = String(status.ym || '').split(' ');
+      try {
+        const r = await api('/sync/monthly/execute', 'POST', { year: Number(y), month: Number(m) });
+        finishRunningModal(`自动更新完成：扫描 ${r.files_scanned} 个文件，新增 ${r.files_updated} 个 Sheet。`, '执行完成');
+        await refreshSettings();
+      } catch (err) {
+        finishRunningModal(`自动更新失败：${err.message}`, '执行失败');
+      }
     }
 
     function statusPill(status) {
@@ -1750,6 +1861,12 @@
         { label: '导出与备份', cards: uniq([cardOf('formExportDaily')]) },
       ]);
 
+      makeSubnav('panel-filesync', [
+        { label: '收货同步', cards: uniq([cardOf('formSyncReceiptsQuery')]) },
+        { label: '出仓同步', cards: uniq([cardOf('formSyncOutboundQuery')]) },
+        { label: '月份更新', cards: uniq([cardOf('formMonthlyExecute')]) },
+      ]);
+
       makeSubnav('panel-settings', [
         { label: '工作目录', cards: uniq([cardOf('formWorkDir')]) },
         { label: '账户设置', cards: uniq([cardOf('formChangePwd')]) },
@@ -2498,6 +2615,8 @@
         try {
           await refreshSettings();
           await refreshWorkDirImportFiles();
+          await refreshSyncReceipts(100).catch(() => {});
+          await refreshSyncOutbound(300).catch(() => {});
           setMsg('工作目录文件列表已刷新');
         } catch (err) { setMsg(err.message, false); }
       };
@@ -2733,6 +2852,85 @@
         } catch (err) { setMsg(err.message, false); }
       };
 
+      byId('formSyncReceiptsQuery').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          await refreshSyncReceipts(Number(f.get('limit') || 100));
+          setMsg('收货同步批次已刷新');
+        } catch (err) { setMsg(err.message, false); }
+      };
+      byId('tableSyncReceipts').onclick = async (e) => {
+        const btn = e.target.closest('.btnSyncReceiptBatch');
+        if (!btn) return;
+        const batchId = Number(btn.dataset.batchId || 0);
+        if (!batchId) return;
+        if (!confirm(`确认执行批次 ${batchId} 的收货同步吗？`)) return;
+        try {
+          showRunningModal(`批次 ${batchId} 收货同步正在运行...`, '正在执行');
+          const r = await api(`/sync/receipts/batch/${batchId}`, 'POST', {});
+          finishRunningModal(`批次 ${batchId} 同步完成：更新文件 ${r.files_updated || 0} 个，写入 ${r.rows || 0} 行。`, '执行完成');
+          await refreshSyncReceipts();
+        } catch (err) {
+          finishRunningModal(`收货同步失败：${err.message}`, '执行失败');
+        }
+      };
+
+      byId('formSyncOutboundQuery').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        try {
+          await refreshSyncOutbound(Number(f.get('limit') || 300));
+          setMsg('出仓同步柜次已刷新');
+        } catch (err) { setMsg(err.message, false); }
+      };
+      byId('tableSyncOutbound').onclick = async (e) => {
+        const btn = e.target.closest('.btnSyncOutboundContainer');
+        if (!btn) return;
+        const containerId = Number(btn.dataset.containerId || 0);
+        if (!containerId) return;
+        if (!confirm(`确认执行柜次 ${containerId} 的出仓同步吗？`)) return;
+        try {
+          showRunningModal(`柜次 ${containerId} 出仓同步正在运行...`, '正在执行');
+          const r = await api(`/sync/outbound/container/${containerId}`, 'POST', {});
+          finishRunningModal(`柜次 ${containerId} 同步完成：更新文件 ${r.files_updated || 0} 个。`, '执行完成');
+          await refreshSyncOutbound();
+        } catch (err) {
+          finishRunningModal(`出仓同步失败：${err.message}`, '执行失败');
+        }
+      };
+
+      byId('formMonthlyAutoSetting').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        const enabled = String(f.get('monthly_auto_enabled') || '1') === '1';
+        if (!confirm(`确认将自动分 Sheet 设置为“${enabled ? '启用' : '关闭'}”吗？`)) return;
+        try {
+          await api('/sync/monthly/settings', 'PUT', { monthly_auto_enabled: enabled });
+          await refreshSettings();
+          setMsg('月份自动更新设置已保存');
+        } catch (err) { setMsg(err.message, false); }
+      };
+      byId('formMonthlyExecute').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        const year = Number(f.get('year') || 0);
+        const month = Number(f.get('month') || 0);
+        if (!year || !month) {
+          setMsg('请输入有效年月', false);
+          return;
+        }
+        if (!confirm(`确认手动更新 ${year} ${month} 月份 Sheet 吗？`)) return;
+        try {
+          showRunningModal(`正在更新 ${year} ${month} 月份 Sheet...`, '正在执行');
+          const r = await api('/sync/monthly/execute', 'POST', { year, month });
+          finishRunningModal(`月份更新完成：扫描 ${r.files_scanned} 个文件，新增 ${r.files_updated} 个 Sheet。`, '执行完成');
+          await refreshSettings();
+        } catch (err) {
+          finishRunningModal(`月份更新失败：${err.message}`, '执行失败');
+        }
+      };
+
       byId('formChangePwd').onsubmit = async (e) => {
         e.preventDefault();
         const f = new FormData(e.target);
@@ -2754,6 +2952,8 @@
           await api('/settings/work-dir', 'PUT', { work_dir: wd });
           await refreshSettings();
           await refreshWorkDirImportFiles();
+          await refreshSyncReceipts(100).catch(() => {});
+          await refreshSyncOutbound(300).catch(() => {});
           setMsg('工作目录已更新');
         } catch (err) { setMsg(err.message, false); }
       };
@@ -2764,6 +2964,8 @@
           if (byId('workDirInput')) byId('workDirInput').value = String(r.work_dir || '');
           await refreshSettings();
           await refreshWorkDirImportFiles();
+          await refreshSyncReceipts(100).catch(() => {});
+          await refreshSyncOutbound(300).catch(() => {});
           setMsg('工作目录已通过文件管理器更新');
         } catch (err) {
           if (String(err.message || '').toLowerCase().includes('cancelled')) {
@@ -2779,6 +2981,9 @@
     setupSecondaryTabs();
     setupVisualHints();
     setupForms();
+    const nowBoot = new Date();
+    if (byId('monthlyYear')) byId('monthlyYear').value = String(nowBoot.getFullYear());
+    if (byId('monthlyMonth')) byId('monthlyMonth').value = String(nowBoot.getMonth() + 1);
     renderCustomers();
     state.inboundFiltered = state.inbound;
     state.inboundTotalCbm = sumInboundCbm(state.inbound);
@@ -2794,7 +2999,12 @@
     refreshPayments().catch(() => {});
     refreshImportBatches('', '', 20).catch(() => {});
     refreshPlannerData().catch(() => {});
-    refreshSettings().then(refreshWorkDirImportFiles).catch(() => {});
+    refreshSettings().then(async () => {
+      await refreshWorkDirImportFiles();
+      await refreshSyncReceipts(100).catch(() => {});
+      await refreshSyncOutbound(300).catch(() => {});
+      await maybePromptMonthlyAutoRun().catch(() => {});
+    }).catch(() => {});
   </script>
 </body>
 </html>
