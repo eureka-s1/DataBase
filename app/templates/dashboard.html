@@ -327,6 +327,9 @@
             <label>PRICE(USD)<input name="unit_price" type="number" step="0.01"></label>
             <label>T.PRICE(USD)<input name="total_price" type="number" step="0.01"></label>
             <label>定金(USD)<input name="deposit_hint" type="number" step="0.01"></label>
+            <label>长(cm)<input name="length_cm" type="number" step="0.001"></label>
+            <label>宽(cm)<input name="width_cm" type="number" step="0.001"></label>
+            <label>高(cm)<input name="height_cm" type="number" step="0.001"></label>
             <label>CBM覆盖<input name="cbm_override" type="number" step="0.001"></label>
             <label>状态
               <select name="status">
@@ -1312,11 +1315,12 @@
         const canPick = String(r.status || '') === 'IN_STOCK';
         const cartons = Number(r.carton_count || 0);
         const canSplit = canPick && cartons > 1;
+        const isMergedItem = String(r.item_name_cn || '').trim().endsWith('*') || String(r.remark || '').includes('MERGED_CARTON');
         const pickCell = canPick
           ? `<input type="checkbox" class="plannerPick" value="${r.id}">`
           : `<span class="small">${r.status || ''}${r.container_id ? ` (柜${r.container_id})` : ''}</span>`;
         const splitCell = canSplit
-          ? `<button class="btn btn-mini btnPlannerSplit" data-item-id="${r.id}" data-cartons="${cartons}" type="button">拆货</button>`
+          ? `<button class="btn btn-mini btnPlannerSplit" data-item-id="${r.id}" data-cartons="${cartons}" data-merged="${isMergedItem ? 1 : 0}" type="button" title="${isMergedItem ? '合并字段货物拆分' : '按CTN拆货'}">${isMergedItem ? '拆货*' : '拆货'}</button>`
           : `<span class="small">-</span>`;
         return `<tr>
           <td>${pickCell}</td>
@@ -2052,6 +2056,7 @@
         if (!btnSplit) return;
         const itemId = Number(btnSplit.dataset.itemId || 0);
         const cartons = Number(btnSplit.dataset.cartons || 0);
+        const isMergedItem = String(btnSplit.dataset.merged || '0') === '1';
         if (!itemId || cartons <= 1) return;
         const raw = prompt(`请输入要拆分的CTN数量（1-${cartons - 1}）`, '1');
         if (raw === null) return;
@@ -2060,12 +2065,35 @@
           setMsg(`拆分CTN必须是 1 到 ${cartons - 1} 的整数`, false);
           return;
         }
-        if (!confirm(`确认将货物 ${itemId} 按 ${splitCartons}/${cartons} CTN 进行拆货吗？`)) return;
+        const src = state.plannerAvailable.find(x => Number(x.id) === itemId) || {};
+        const dftL = Number(src.length_cm || 0);
+        const dftW = Number(src.width_cm || 0);
+        const dftH = Number(src.height_cm || 0);
+        const lenRaw = prompt('请输入拆分后长(cm)，留空使用原值', dftL ? String(dftL) : '');
+        if (lenRaw === null) return;
+        const widRaw = prompt('请输入拆分后宽(cm)，留空使用原值', dftW ? String(dftW) : '');
+        if (widRaw === null) return;
+        const heiRaw = prompt('请输入拆分后高(cm)，留空使用原值', dftH ? String(dftH) : '');
+        if (heiRaw === null) return;
+        const payload = { split_cartons: splitCartons };
+        const putDim = (k, rawV, fallbackV) => {
+          const s = String(rawV || '').trim();
+          if (!s) {
+            if (Number.isFinite(fallbackV) && fallbackV > 0) payload[k] = fallbackV;
+            return;
+          }
+          const n = Number(s);
+          if (Number.isFinite(n) && n > 0) payload[k] = n;
+        };
+        putDim('length_cm', lenRaw, dftL);
+        putDim('width_cm', widRaw, dftW);
+        putDim('height_cm', heiRaw, dftH);
+        if (!confirm(`确认将货物 ${itemId}${isMergedItem ? '（合并字段）' : ''} 按 ${splitCartons}/${cartons} CTN 进行拆货吗？`)) return;
         try {
-          const r = await api(`/inbound-items/${itemId}/split-by-cartons`, 'POST', { split_cartons: splitCartons });
+          const r = await api(`/inbound-items/${itemId}/split-by-cartons`, 'POST', payload);
           await refreshAllViews();
           setMsg(`拆货完成：${r.source_item_id} -> 新增 ${r.new_item_id}`);
-          showDoneModal(`拆货完成：原货物 ${r.source_item_id} 保留 ${r.source_cartons} CTN，新货物 ${r.new_item_id} 为 ${r.new_cartons} CTN。`, '执行完成');
+          showDoneModal(`拆货完成：原货物 ${r.source_item_id} 保留 ${r.source_cartons} CTN，新货物 ${r.new_item_id} 为 ${r.new_cartons} CTN。${r.source_is_merged ? '（来源为合并字段货物）' : ''}`, '执行完成');
         } catch (err) { setMsg(err.message, false); }
       };
       byId('tableInbound').onclick = async (e) => {
@@ -2089,6 +2117,9 @@
           form.unit_price.value = row.unit_price ?? '';
           form.total_price.value = row.total_price ?? '';
           form.deposit_hint.value = row.deposit_hint ?? '';
+          form.length_cm.value = row.length_cm ?? '';
+          form.width_cm.value = row.width_cm ?? '';
+          form.height_cm.value = row.height_cm ?? '';
           form.cbm_override.value = row.cbm_override ?? '';
           form.status.value = row.status || '';
           setMsg(`已带入货物 ${itemId}，可修改后保存`);
@@ -2139,6 +2170,9 @@
         putNum('unit_price');
         putNum('total_price');
         putNum('deposit_hint');
+        putNum('length_cm');
+        putNum('width_cm');
+        putNum('height_cm');
         putNum('cbm_override');
         put('status');
         try {

@@ -59,16 +59,20 @@ def create_inbound_item(conn: Connection, payload: dict) -> int:
 
 def update_inbound_item(conn: Connection, item_id: int, payload: dict) -> None:
     ts = now_ts()
-    length_cm = to_float(payload.get('length_cm')) if 'length_cm' in payload else None
-    width_cm = to_float(payload.get('width_cm')) if 'width_cm' in payload else None
-    height_cm = to_float(payload.get('height_cm')) if 'height_cm' in payload else None
-
-    if length_cm is not None and width_cm is not None and height_cm is not None:
-        cbm_calc = calc_cbm(length_cm, width_cm, height_cm)
-        conn.execute(
-            'UPDATE inbound_items SET length_cm=?, width_cm=?, height_cm=?, cbm_calculated=?, updated_at=? WHERE id=?',
-            (length_cm, width_cm, height_cm, cbm_calc, ts, item_id),
-        )
+    if 'length_cm' in payload or 'width_cm' in payload or 'height_cm' in payload:
+        old = conn.execute(
+            'SELECT length_cm, width_cm, height_cm FROM inbound_items WHERE id=?',
+            (item_id,),
+        ).fetchone()
+        if old:
+            length_cm = to_float(payload.get('length_cm'), to_float(old['length_cm']))
+            width_cm = to_float(payload.get('width_cm'), to_float(old['width_cm']))
+            height_cm = to_float(payload.get('height_cm'), to_float(old['height_cm']))
+            cbm_calc = calc_cbm(length_cm, width_cm, height_cm)
+            conn.execute(
+                'UPDATE inbound_items SET length_cm=?, width_cm=?, height_cm=?, cbm_calculated=?, updated_at=? WHERE id=?',
+                (length_cm, width_cm, height_cm, cbm_calc, ts, item_id),
+            )
 
     simple_fields = [
         'shop_no', 'position_or_tel', 'item_no', 'item_name_cn', 'material', 'remark',

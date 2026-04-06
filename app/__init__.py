@@ -368,7 +368,14 @@ def create_app() -> Flask:
         payload = request.get_json(force=True)
         split_cartons = int(payload.get('split_cartons', 0))
         with db_session() as conn:
-            result = split_inbound_item_by_cartons(conn, item_id, split_cartons)
+            result = split_inbound_item_by_cartons(
+                conn,
+                item_id,
+                split_cartons,
+                payload.get('length_cm'),
+                payload.get('width_cm'),
+                payload.get('height_cm'),
+            )
         return result
 
     @app.route('/containers/<int:container_id>/confirm', methods=['POST'])

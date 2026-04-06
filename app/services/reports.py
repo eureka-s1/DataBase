@@ -75,15 +75,19 @@ def export_daily_inbound_excel(conn: Connection, inbound_date: str | None = None
     wb = Workbook()
     ws = wb.active
     ws.title = 'daily_inbound'
-    ws.append(['inbound_no', 'date', 'customer', 'shop_no', 'item_no', 'item_name', 'material', 'ctn', 'qty', 'unit_price', 'total_price', 'deposit_hint', 'cbm_final', 'status'])
+    ws.append([
+        'inbound_no', 'date', 'customer', 'shop_no', 'item_no', 'item_name', 'material',
+        'ctn', 'qty', 'unit_price', 'total_price', 'deposit_hint',
+        'length_cm', 'width_cm', 'height_cm', 'cbm_final', 'status'
+    ])
     for row in data:
         ws.append([
             row.get('inbound_no'), row.get('inbound_date'), row.get('customer_name'), row.get('shop_no'),
             row.get('item_no'), row.get('item_name_cn'), row.get('material'), row.get('carton_count'),
             row.get('qty'), row.get('unit_price'), row.get('total_price'), row.get('deposit_hint'),
-            row.get('cbm_final'), row.get('status'),
+            row.get('length_cm'), row.get('width_cm'), row.get('height_cm'), row.get('cbm_final'), row.get('status'),
         ])
-    _style_sheet(ws, [20, 12, 16, 12, 14, 20, 12, 8, 8, 10, 12, 10, 10, 10])
+    _style_sheet(ws, [20, 12, 16, 12, 14, 20, 12, 8, 8, 10, 12, 10, 10, 10, 10, 10, 10])
 
     out = _export_dir() / f'daily_inbound_{d}.xlsx'
     wb.save(out)
@@ -95,14 +99,14 @@ def export_inventory_excel(conn: Connection) -> str:
     wb = Workbook()
     ws = wb.active
     ws.title = 'inventory'
-    ws.append(['inbound_no', 'date', 'customer', 'shop_no', 'item_no', 'item_name', 'material', 'ctn', 'qty', 'cbm_final', 'status'])
+    ws.append(['inbound_no', 'date', 'customer', 'shop_no', 'item_no', 'item_name', 'material', 'ctn', 'qty', 'length_cm', 'width_cm', 'height_cm', 'cbm_final', 'status'])
     for row in data:
         ws.append([
             row.get('inbound_no'), row.get('inbound_date'), row.get('customer_name'), row.get('shop_no'),
             row.get('item_no'), row.get('item_name_cn'), row.get('material'), row.get('carton_count'),
-            row.get('qty'), row.get('cbm_final'), row.get('status'),
+            row.get('qty'), row.get('length_cm'), row.get('width_cm'), row.get('height_cm'), row.get('cbm_final'), row.get('status'),
         ])
-    _style_sheet(ws, [20, 12, 16, 12, 14, 20, 12, 8, 8, 10, 10])
+    _style_sheet(ws, [20, 12, 16, 12, 14, 20, 12, 8, 8, 10, 10, 10, 10, 10])
     out = _export_dir() / f'inventory_{today_str()}.xlsx'
     wb.save(out)
     return str(out)
@@ -214,13 +218,13 @@ def export_container_excel(conn: Connection, container_id: int) -> str:
     for r in customer_summary:
         ws.append([r['customer_name'], r['cbm_total'], r['freight_amount']])
     ws.append([])
-    ws.append(['customer', 'customer_id', 'inbound_date', 'item_no', 'item_name', 'shop_no', 'item_status', 'cbm_at_load', 'item_freight'])
+    ws.append(['customer', 'customer_id', 'inbound_date', 'item_no', 'item_name', 'shop_no', 'item_status', 'length_cm', 'width_cm', 'height_cm', 'cbm_at_load', 'item_freight'])
     for r in items:
         ws.append([
             r['customer_name'], r['customer_id'], r['inbound_date'], r['item_no'], r['item_name_cn'],
-            r['shop_no'], r['item_status'], r['cbm_at_load'], r['freight_amount'],
+            r['shop_no'], r['item_status'], r.get('length_cm'), r.get('width_cm'), r.get('height_cm'), r['cbm_at_load'], r['freight_amount'],
         ])
-    _style_sheet(ws, [18, 12, 12, 14, 22, 12, 10, 12, 12])
+    _style_sheet(ws, [18, 12, 12, 14, 22, 12, 10, 10, 10, 10, 12, 12])
 
     out = _export_dir() / f"container_{_sanitize_filename(head['container_no'])}_{today_str()}.xlsx"
     wb.save(out)

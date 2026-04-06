@@ -155,16 +155,23 @@ def _collapse_rows_by_merged_carton(
             if name and name not in item_names:
                 item_names.append(name)
         if item_names:
-            base['item_name_cn'] = '+'.join(item_names)
+            merged_name = '+'.join(item_names)
+            if not merged_name.endswith('*'):
+                merged_name = f'{merged_name}*'
+            base['item_name_cn'] = merged_name
 
         # Merged-carton rows represent one carton containing multiple item lines:
         # monetary fields should aggregate across member lines.
         base['qty'] = sum(to_int(m.get('qty')) for m in members)
         base['unit_price'] = round(sum(to_float(m.get('unit_price')) for m in members), 2)
         base['total_price'] = round(sum(to_float(m.get('total_price')) for m in members), 2)
+        # If CBM cells are not merged, they must still be aggregated by member lines.
+        base['cbm_calculated'] = round(sum(to_float(m.get('cbm_calculated')) for m in members), 6)
+        base['is_merged_carton'] = True
 
         raw_row = dict(base.get('raw_row') or {})
         raw_row['MERGED_CARTON_ROWS'] = ','.join(str(int(m.get('row_no') or 0)) for m in members)
+        raw_row['MERGED_CARTON'] = 1
         base['raw_row'] = raw_row
 
         out.append(base)
@@ -217,6 +224,26 @@ def _row_to_raw_map(row: list, labels: list[str]) -> dict:
             continue
         raw[label] = val
     return raw
+
+
+def _fill_dimensions_from_cbm_suffix(row: list, mapping: dict[int, str], item: dict) -> None:
+    """
+    Implicit dimension rule:
+    if length/width/height are missing, default to the 3 columns right after CBM column.
+    """
+    cbm_col = next((idx for idx, field in mapping.items() if field == 'cbm_calculated'), None)
+    if cbm_col is None:
+        return
+    if to_float(item.get('length_cm')) > 0 and to_float(item.get('width_cm')) > 0 and to_float(item.get('height_cm')) > 0:
+        return
+    if cbm_col + 3 >= len(row):
+        return
+    if to_float(item.get('length_cm')) <= 0:
+        item['length_cm'] = to_float(row[cbm_col + 1])
+    if to_float(item.get('width_cm')) <= 0:
+        item['width_cm'] = to_float(row[cbm_col + 2])
+    if to_float(item.get('height_cm')) <= 0:
+        item['height_cm'] = to_float(row[cbm_col + 3])
 
 
 def _parse_headerless_excel(path: Path, sheet_name: str, rows: list[list]) -> dict | None:
@@ -320,6 +347,7 @@ def parse_inbound_excel(path: Path) -> dict:
         item = {}
         for col_idx, field in mapping.items():
             item[field] = row[col_idx] if col_idx < len(row) else None
+        _fill_dimensions_from_cbm_suffix(row, mapping, item)
 
         customer_name = str(item.get('customer_name') or '').strip() if has_customer_col else ''
         if has_customer_col and customer_name and not _is_skip_customer_token(customer_name):
@@ -479,6 +507,7 @@ def import_inbound_excel(conn: Connection, path: Path, inbound_date: str | None,
             'height_cm': row.get('height_cm'),
             'cbm_calculated': row.get('cbm_calculated'),
             'inbound_date': inbound_date_used,
+            'is_merged_carton': 1 if row.get('is_merged_carton') else 0,
         }
 
         if cid is None:
@@ -532,6 +561,7 @@ def import_inbound_excel(conn: Connection, path: Path, inbound_date: str | None,
             'height_cm': row.get('height_cm'),
             'cbm_calculated': row.get('cbm_calculated'),
             'status': 'IN_STOCK',
+            'remark': 'MERGED_CARTON' if row.get('is_merged_carton') else None,
         }
 
         inbound_item_id = None

@@ -134,7 +134,14 @@ def _split_int_keep_total(total: int, ratio: float) -> tuple[int, int]:
     return keep, part
 
 
-def split_inbound_item_by_cartons(conn: Connection, inbound_item_id: int, split_cartons: int) -> dict:
+def split_inbound_item_by_cartons(
+    conn: Connection,
+    inbound_item_id: int,
+    split_cartons: int,
+    length_cm: float | None = None,
+    width_cm: float | None = None,
+    height_cm: float | None = None,
+) -> dict:
     row = conn.execute(
         '''
         SELECT *
@@ -158,6 +165,7 @@ def split_inbound_item_by_cartons(conn: Connection, inbound_item_id: int, split_
         raise ValueError(f'split_cartons must be between 1 and {total_cartons - 1}')
 
     ratio = float(split_cartons) / float(total_cartons)
+    source_is_merged = str(row['item_name_cn'] or '').strip().endswith('*') or ('MERGED_CARTON' in str(row['remark'] or ''))
 
     qty_keep, qty_split = _split_int_keep_total(to_int(row['qty'], 0), ratio)
     unit_keep, unit_split = _split_float_keep_total(to_float(row['unit_price'], 0.0), ratio, 2)
@@ -169,15 +177,28 @@ def split_inbound_item_by_cartons(conn: Connection, inbound_item_id: int, split_
     if cbm_override_src is not None:
         cbm_override_keep, cbm_override_split = _split_float_keep_total(to_float(cbm_override_src, 0.0), ratio, 6)
 
+    length_final = to_float(length_cm, to_float(row['length_cm']))
+    width_final = to_float(width_cm, to_float(row['width_cm']))
+    height_final = to_float(height_cm, to_float(row['height_cm']))
+
+    remark_src = str(row['remark'] or '').strip()
+    if source_is_merged:
+        if '[SPLIT_FROM_MERGED]' not in remark_src:
+            remark_src = f'{remark_src};[SPLIT_FROM_MERGED]' if remark_src else '[SPLIT_FROM_MERGED]'
+
     ts = now_ts()
     split_no = _next_split_inbound_no(conn, str(row['inbound_no']))
     conn.execute(
         '''
         UPDATE inbound_items
-        SET carton_count=?, qty=?, unit_price=?, total_price=?, cbm_calculated=?, cbm_override=?, updated_at=?
+        SET carton_count=?, qty=?, unit_price=?, total_price=?, cbm_calculated=?, cbm_override=?,
+            length_cm=?, width_cm=?, height_cm=?, remark=?, updated_at=?
         WHERE id=?
         ''',
-        (total_cartons - split_cartons, qty_keep, unit_keep, total_keep, cbm_keep, cbm_override_keep, ts, inbound_item_id),
+        (
+            total_cartons - split_cartons, qty_keep, unit_keep, total_keep, cbm_keep, cbm_override_keep,
+            length_final, width_final, height_final, remark_src, ts, inbound_item_id
+        ),
     )
 
     cur = conn.execute(
@@ -207,12 +228,12 @@ def split_inbound_item_by_cartons(conn: Connection, inbound_item_id: int, split_
             unit_split,
             total_split,
             row['deposit_hint'],
-            row['length_cm'],
-            row['width_cm'],
-            row['height_cm'],
+            length_final,
+            width_final,
+            height_final,
             cbm_split,
             cbm_override_split,
-            row['remark'],
+            remark_src,
             ts,
             ts,
         ),
@@ -231,6 +252,10 @@ def split_inbound_item_by_cartons(conn: Connection, inbound_item_id: int, split_
         'new_total_price': total_split,
         'source_cbm': cbm_keep,
         'new_cbm': cbm_split,
+        'source_is_merged': bool(source_is_merged),
+        'length_cm': length_final,
+        'width_cm': width_final,
+        'height_cm': height_final,
     }
 
 
@@ -387,6 +412,7 @@ def container_manifest(conn: Connection, container_id: int) -> tuple[dict, list[
     rows = conn.execute(
         '''
         SELECT ci.inbound_item_id, ci.cbm_at_load, i.inbound_date, i.item_no, i.item_name_cn, i.shop_no, i.status AS item_status,
+               i.length_cm, i.width_cm, i.height_cm,
                cu.id AS customer_id, cu.name AS customer_name
         FROM container_items ci
         JOIN inbound_items i ON i.id = ci.inbound_item_id

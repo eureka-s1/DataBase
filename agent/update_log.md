@@ -706,6 +706,31 @@
     - 更新 `agent/format/customer_receipts_2026data_format_sample.md`，强调“柜号驱动识别”与柜号格式范围。
 - 更新原因：适配员工填表结构不一致导致的多种标记行变体，减少在库误判/漏判。
 
+### 54. 尺寸字段与合并货物处理增强（导入/拆货/编辑/导出）
+- 时间：2026-04-06
+- 更新内容：
+  - 导入解析增强（`app/services/importer.py`）：
+    - 若 `长/宽/高` 未显式表头映射，默认读取 `CBM` 列后 3 列为 `length_cm/width_cm/height_cm`（隐式存储）；
+    - 合并字段货物（按 CTN 合并区间）新增标记：
+      - 商品名输出为 `A+B+...*`（尾部 `*`）；
+      - `raw_row` 写入 `MERGED_CARTON=1` 与 `MERGED_CARTON_ROWS`；
+      - `qty/PRICE/T.PRICE` 求和；
+      - `cbm_calculated` 同步求和（即使 CBM 单元格非合并）；
+      - `length/width/height` 保留首行值。
+    - 入库写入时为合并货物加 `remark='MERGED_CARTON'`。
+  - 拆货增强（`app/services/containers.py` + `/inbound-items/<id>/split-by-cartons`）：
+    - 支持传入 `length_cm/width_cm/height_cm` 作为拆后尺寸；
+    - 若不传则默认沿用原尺寸；
+    - 若拆分来源为合并货物，返回 `source_is_merged=true` 且备注标注 `[SPLIT_FROM_MERGED]`。
+  - 编辑增强（`app/templates/dashboard.html` + `app/services/inbound.py`）：
+    - 在“手动修改在库商品”中加入 `长/宽/高` 字段；
+    - 支持任意单项尺寸更新，自动用旧值补齐并重算 `cbm_calculated`。
+  - 导出增强（`app/services/reports.py`）：
+    - `daily_inbound`、`inventory`、`container_manifest` Excel 增加 `length_cm/width_cm/height_cm` 列。
+  - 列表显示策略：
+    - 日常列表不新增尺寸列，保持当前简洁展示。
+- 更新原因：满足“尺寸隐式导入、合并货物可识别、拆货可指定尺寸、编辑导出包含尺寸”的新业务口径。
+
 ### 56. 历史回填新增文件年份过滤（忽略 2026 年前修改文件）
 - 时间：2026-04-06
 - 更新内容：
