@@ -3,6 +3,7 @@ from __future__ import annotations
 from functools import wraps
 from pathlib import Path
 from uuid import uuid4
+import argparse
 
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
@@ -56,6 +57,7 @@ from .services.reports import (
     export_statement_pdf,
 )
 from .services.ui_settings import get_ui_settings, list_receipt_files, pick_work_dir, set_work_dir
+import scripts.import_historical_in_stock as hist_import
 
 
 def login_required(fn):
@@ -619,6 +621,30 @@ def create_app() -> Flask:
                 dry_run=bool(payload.get('dry_run', False)),
             )
         return result
+
+    @app.route('/import/historical-in-stock/execute', methods=['POST'])
+    @login_required
+    def import_historical_in_stock_execute_api():
+        payload = request.get_json(force=True) or {}
+        settings = get_ui_settings()
+        data_root = Path(payload.get('data_root') or settings.get('work_dir') or '').resolve()
+        if not data_root.exists() or not data_root.is_dir():
+            return {'error': 'work directory not found'}, 400
+        dry_run = bool(payload.get('dry_run', True))
+        min_file_year = int(payload.get('min_file_year') or 0)
+        inbound_date = str(payload.get('inbound_date') or '').strip()
+        args = argparse.Namespace(
+            data_root=data_root,
+            customer=None,
+            limit=0,
+            inbound_date=inbound_date,
+            min_file_year=min_file_year,
+            dry_run=dry_run,
+            apply=not dry_run,
+            verbose=False,
+        )
+        report = hist_import.run_import(args)
+        return report
 
     @app.route('/import/inbound/rollback/<int:batch_id>', methods=['POST'])
     @login_required

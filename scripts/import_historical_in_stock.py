@@ -377,7 +377,7 @@ def _build_inbound_no(source_key: str) -> str:
     return f"HIST-{h}"
 
 
-def run(args) -> int:
+def run_import(args) -> dict:
     data_root = Path(args.data_root).resolve()
     if not data_root.exists():
         raise SystemExit(f"data root not found: {data_root}")
@@ -504,12 +504,22 @@ def run(args) -> int:
             stats["folders_with_rows"] += 1
 
     mode = "DRY-RUN" if args.dry_run else "APPLY"
-    print(f"[{mode}] data_root={data_root}")
-    for k in sorted(stats):
-        print(f"{k}: {stats[k]}")
-    if detail_samples:
+    return {
+        "mode": mode,
+        "data_root": str(data_root),
+        "stats": {k: int(v) for k, v in sorted(stats.items(), key=lambda x: x[0])},
+        "samples": detail_samples[:10],
+    }
+
+
+def run(args) -> int:
+    report = run_import(args)
+    print(f"[{report['mode']}] data_root={report['data_root']}")
+    for k, v in report["stats"].items():
+        print(f"{k}: {v}")
+    if report["samples"]:
         print("samples:")
-        for x in detail_samples[:10]:
+        for x in report["samples"]:
             print(x)
     return 0
 

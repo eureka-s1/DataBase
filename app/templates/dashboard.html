@@ -742,6 +742,20 @@
             </div>
           </div>
           <div class="card">
+            <h3>历史在库数据导入（工作目录）</h3>
+            <div class="small" id="histImportWorkDirHint">工作目录：未设置</div>
+            <form id="formHistImport" class="inline" style="margin-top:8px;">
+              <label>最小文件年份
+                <input name="min_file_year" type="number" step="1" value="2026">
+              </label>
+              <label>仅演练
+                <select name="dry_run"><option value="1" selected>是</option><option value="0">否（写入数据库）</option></select>
+              </label>
+              <button class="btn primary" type="submit">执行历史在库导入</button>
+            </form>
+            <div class="small">逻辑：扫描工作目录下客户文件夹，按规则识别仍在库货物并导入。</div>
+          </div>
+          <div class="card">
             <h3>导出与备份</h3>
             <form id="formExportDaily" class="inline">
               <label>日期<input type="text" class="date-iso" name="inbound_date" placeholder="YYYY-MM-DD" required></label>
@@ -940,6 +954,7 @@
       if (byId('workDirCurrent')) byId('workDirCurrent').textContent = wd ? `当前工作目录：${wd}` : '当前工作目录：未设置';
       if (byId('workDirInput')) byId('workDirInput').value = wd;
       if (byId('importWorkDirHint')) byId('importWorkDirHint').textContent = wd ? `工作目录：${wd}` : '工作目录：未设置';
+      if (byId('histImportWorkDirHint')) byId('histImportWorkDirHint').textContent = wd ? `工作目录：${wd}` : '工作目录：未设置';
     }
 
     async function refreshWorkDirImportFiles() {
@@ -1715,7 +1730,8 @@
       ]);
 
       makeSubnav('panel-io', [
-        { label: '导入', cards: uniq([cardOf('formImportUpload')]) },
+        { label: '手动导入', cards: uniq([cardOf('formImportUpload')]) },
+        { label: '历史在库导入', cards: uniq([cardOf('formHistImport')]) },
         { label: '导出与备份', cards: uniq([cardOf('formExportDaily')]) },
       ]);
 
@@ -2547,6 +2563,34 @@
             setMsg(`导入完成：日期 ${formatDateDisplay(r.inbound_date_used)}，成功入库 ${r.success_rows}，失败 ${r.failed_rows}，自动新建客户 ${r.auto_created_customer_count || 0}`);
             clearImportSelection();
             showDoneModal(`批次ID: ${r.batch_id}；入库日期: ${formatDateDisplay(r.inbound_date_used)}；成功入库: ${r.success_rows} 条；失败: ${r.failed_rows} 条；新建客户: ${r.auto_created_customer_count || 0}。`, '执行完成');
+          }
+        } catch (err) { setMsg(err.message, false); }
+      };
+      byId('formHistImport').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        const dryRun = String(f.get('dry_run') || '1') === '1';
+        const minYear = Number(f.get('min_file_year') || 0);
+        if (minYear && (!Number.isInteger(minYear) || minYear < 2000 || minYear > 2100)) {
+          setMsg('最小文件年份不合法', false);
+          return;
+        }
+        if (!dryRun && !confirm('将执行写库导入，确认继续？')) return;
+        try {
+          const r = await api('/import/historical-in-stock/execute', 'POST', {
+            dry_run: dryRun,
+            min_file_year: minYear || 0,
+          });
+          byId('ioResult').textContent = JSON.stringify(r, null, 2);
+          if (dryRun) {
+            setMsg('历史在库导入演练完成');
+            showDoneModal(`历史在库导入演练完成。扫描 ${r.stats?.folders_scanned || 0} 个目录，候选 ${r.stats?.rows_candidate || 0} 条。`, '执行完成');
+          } else {
+            await refreshCustomers();
+            await runInboundQuery(true);
+            await refreshSummary();
+            setMsg('历史在库导入完成');
+            showDoneModal(`历史在库导入完成。写入 ${r.stats?.rows_inserted || 0} 条，客户新增 ${r.stats?.customers_auto_created || 0}。`, '执行完成');
           }
         } catch (err) { setMsg(err.message, false); }
       };
