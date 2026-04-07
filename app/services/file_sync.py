@@ -189,7 +189,7 @@ def _xls_to_xlsx_preserve_style(xls_path: Path, out: Path) -> None:
                             and dtv.second == 0
                         ):
                             xw.value = dtv.date()
-                            xw.number_format = "yyyy-mm-dd"
+                            xw.number_format = "yyyy/mm/dd"
                         else:
                             xw.value = dtv
                     except Exception:
@@ -519,7 +519,7 @@ def sync_receipts_by_batch(conn: Connection, batch_id: int, work_dir: Path) -> d
                     col1 = customer_name
                     first_meta_written[key] = 1
                 elif first_meta_written[key] == 1:
-                    col1 = d.strftime("%Y-%m-%d")
+                    col1 = d.strftime("%Y/%m/%d")
                     first_meta_written[key] = 2
                 else:
                     col1 = ""
@@ -612,7 +612,7 @@ def sync_outbound_container_to_customers(conn: Connection, container_id: int, wo
     files_updated = 0
     updated_files: list[dict] = []
     err: list[str] = []
-    date_text = datetime.now().strftime("%Y-%m-%d")
+    date_text = datetime.now().strftime("%Y/%m/%d")
     unit_price = to_float(c["default_price_per_m3"], 0.0)
     fx_cny = 7.0
 
@@ -735,7 +735,7 @@ def sync_outbound_container_to_manifest(conn: Connection, container_id: int, wor
     wb = openpyxl.load_workbook(manifest_file)
     ws = wb[wb.sheetnames[0]] if wb.sheetnames else wb.create_sheet("Sheet1")
     start = ws.max_row + 3 if ws.max_row > 0 else 1
-    date_text = dt.strftime("%Y-%m-%d")
+    date_text = dt.strftime("%Y/%m/%d")
     unit_price = to_float(c["default_price_per_m3"], 0.0)
     container_capacity = to_float(c["capacity_cbm"], 68.0)
     total_freight = round(container_capacity * unit_price, 2)
