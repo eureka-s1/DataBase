@@ -55,6 +55,86 @@ def _find_customer_dir(work_dir: Path, customer_name: str) -> Path | None:
     return None
 
 
+def _normalize_customer_key(name: str) -> str:
+    return re.sub(r"\s+", "", str(name or "")).upper().strip()
+
+
+def _resolve_customer_profile(conn: Connection, customer_id: int | None, fallback_name: str = "") -> tuple[str, list[str]]:
+    canonical = str(fallback_name or "").strip()
+    aliases: list[str] = []
+    cid = int(customer_id or 0)
+    if cid > 0:
+        row = conn.execute("SELECT name FROM customers WHERE id=? LIMIT 1", (cid,)).fetchone()
+        if row and str(row["name"] or "").strip():
+            canonical = str(row["name"]).strip()
+        ars = conn.execute(
+            """
+            SELECT alias_name
+            FROM customer_aliases
+            WHERE customer_id=? AND is_active=1
+            ORDER BY is_primary DESC, id ASC
+            """,
+            (cid,),
+        ).fetchall()
+        aliases = [str(r["alias_name"]).strip() for r in ars if str(r["alias_name"] or "").strip()]
+    elif canonical:
+        key = _normalize_customer_key(canonical)
+        row = conn.execute(
+            """
+            SELECT c.id, c.name
+            FROM customer_aliases ca
+            JOIN customers c ON c.id=ca.customer_id
+            WHERE ca.alias_name_norm=? AND ca.is_active=1
+            LIMIT 1
+            """,
+            (key,),
+        ).fetchone()
+        if not row:
+            row = conn.execute(
+                "SELECT id, name FROM customers WHERE UPPER(REPLACE(name, ' ', ''))=? LIMIT 1",
+                (key,),
+            ).fetchone()
+        if row:
+            cid = int(row["id"])
+            canonical = str(row["name"] or canonical).strip()
+            ars = conn.execute(
+                """
+                SELECT alias_name
+                FROM customer_aliases
+                WHERE customer_id=? AND is_active=1
+                ORDER BY is_primary DESC, id ASC
+                """,
+                (cid,),
+            ).fetchall()
+            aliases = [str(r["alias_name"]).strip() for r in ars if str(r["alias_name"] or "").strip()]
+    seen: set[str] = set()
+    candidates: list[str] = []
+    for n in [canonical, *aliases, fallback_name]:
+        name = str(n or "").strip()
+        if not name:
+            continue
+        k = _normalize_customer_key(name)
+        if k in seen:
+            continue
+        seen.add(k)
+        candidates.append(name)
+    return canonical, candidates
+
+
+def _find_customer_dir_from_candidates(work_dir: Path, name_candidates: list[str]) -> Path | None:
+    for name in name_candidates:
+        exact = work_dir / name
+        if exact.exists() and exact.is_dir():
+            return exact
+    wanted = {_normalize_customer_key(x) for x in name_candidates if str(x or "").strip()}
+    if not wanted:
+        return None
+    for p in work_dir.iterdir():
+        if p.is_dir() and _normalize_customer_key(p.name) in wanted:
+            return p
+    return None
+
+
 def _pick_receipt_xlsx(customer_dir: Path, customer_name: str) -> Path:
     all_excel = [
         p for p in customer_dir.rglob("*")
@@ -281,29 +361,41 @@ def _xls_to_xlsx_preserve_style(xls_path: Path, out: Path) -> None:
     wb.save(out)
 
 
-def _ensure_month_sheet(wb, customer_name: str, customer_phone: str | None, year: int, month: int):
-    candidates = [f"{year} {month}", f"{year} {month:02d}"]
-    for sname in candidates:
-        if sname in wb.sheetnames:
-            ws = wb[sname]
-            if _sheet_is_blank(ws):
-                _write_section_header(ws, 1, customer_name, customer_phone, year, month)
-            return ws
-    # 兼容异常命名（多空格）
-    wanted = {f"{year} {month}", f"{year} {month:02d}"}
+def _sheet_month_key(sheet_name: str) -> tuple[int, int] | None:
+    s = str(sheet_name or "").strip()
+    if not s:
+        return None
+    m = re.search(r"(?<!\d)(20\d{2})\D{0,4}(0?[1-9]|1[0-2])(?:\D|$)", s)
+    if not m:
+        return None
+    try:
+        y = int(m.group(1))
+        mo = int(m.group(2))
+    except Exception:
+        return None
+    if 1 <= mo <= 12:
+        return y, mo
+    return None
+
+
+def _find_month_sheet_name(wb, year: int, month: int) -> str | None:
+    target = (int(year), int(month))
     for sname in wb.sheetnames:
-        norm = " ".join(str(sname).strip().split())
-        if norm in wanted:
-            ws = wb[sname]
-            if _sheet_is_blank(ws):
-                _write_section_header(ws, 1, customer_name, customer_phone, year, month)
-            return ws
-    sname = candidates[0]
+        if _sheet_month_key(str(sname)) == target:
+            return str(sname)
+    return None
+
+
+def _ensure_month_sheet(wb, customer_name: str, customer_phone: str | None, year: int, month: int):
+    existed = _find_month_sheet_name(wb, year, month)
+    if existed:
+        ws = wb[existed]
+        if _sheet_is_blank(ws):
+            _write_section_header(ws, 1, customer_name, customer_phone, year, month)
+        return ws
+    sname = f"{int(year)} {int(month)}"
     ws = wb.create_sheet(title=sname)
     _write_section_header(ws, 1, customer_name, customer_phone, year, month)
-    headers = ["日期", "SHOP NO", "TEL", "ITEM NO", "品名", "材质", "CTNS", "QTY", "PRICE", "T.PRICE", "定金", "CBM"]
-    for i, h in enumerate(headers, start=1):
-        ws.cell(2, i, h)
     return ws
 
 
@@ -479,20 +571,23 @@ def sync_receipts_by_batch(conn: Connection, batch_id: int, work_dir: Path) -> d
     if not rows:
         return {"batch_id": batch_id, "customers": 0, "rows": 0, "files_updated": 0, "errors": ["no inbound rows in batch"]}
 
-    grouped: dict[str, list] = {}
+    grouped: dict[int, list] = {}
     for r in rows:
-        grouped.setdefault(str(r["customer_name"]), []).append(r)
+        grouped.setdefault(int(r["customer_id"] or 0), []).append(r)
 
     files_updated = 0
     updated_files: list[dict] = []
     err: list[str] = []
     row_count = 0
-    row_ptr: dict[tuple[str, int, int], int] = {}
-    first_meta_written: dict[tuple[str, int, int], int] = {}
-    for customer_name, items in grouped.items():
-        cdir = _find_customer_dir(work_dir, customer_name)
+    row_ptr: dict[tuple[int, int, int], int] = {}
+    first_meta_written: dict[tuple[int, int, int], int] = {}
+    for customer_id, items in grouped.items():
+        fallback_name = str(items[0]["customer_name"] or "").strip()
+        customer_name, name_candidates = _resolve_customer_profile(conn, customer_id, fallback_name=fallback_name)
+        cdir = _find_customer_dir_from_candidates(work_dir, name_candidates)
         if not cdir:
-            err.append(f"{customer_name}: customer folder not found")
+            expect = customer_name or fallback_name or f"customer_id={customer_id}"
+            err.append(f"{expect}: customer folder not found, please create folder '{expect}'")
             continue
         try:
             xlsx = _pick_receipt_xlsx(cdir, customer_name)
@@ -505,7 +600,7 @@ def sync_receipts_by_batch(conn: Connection, batch_id: int, work_dir: Path) -> d
                 except Exception:
                     d = datetime.now()
                 ws = _ensure_month_sheet(wb, customer_name, phone, d.year, d.month)
-                key = (customer_name, d.year, d.month)
+                key = (customer_id, d.year, d.month)
                 if key not in row_ptr:
                     if _sheet_needs_new_section(ws):
                         start = ws.max_row + 3
@@ -589,7 +684,7 @@ def _get_outbound_container_customer_rows(conn: Connection, container_id: int):
         raise ValueError("container not found or not CONFIRMED")
     rows = conn.execute(
         """
-        SELECT cu.name AS customer_name, COALESCE(cu.phone, '') AS customer_phone,
+        SELECT cu.id AS customer_id, cu.name AS customer_name, COALESCE(cu.phone, '') AS customer_phone,
                SUM(COALESCE(i.carton_count,0)) AS ctns,
                SUM(COALESCE(ci.cbm_at_load, COALESCE(i.cbm_override, i.cbm_calculated), 0)) AS cbm_total
         FROM container_items ci
@@ -617,10 +712,13 @@ def sync_outbound_container_to_customers(conn: Connection, container_id: int, wo
     fx_cny = 7.0
 
     for r in rows:
-        name = str(r["customer_name"])
-        cdir = _find_customer_dir(work_dir, name)
+        customer_id = int(r["customer_id"] or 0)
+        fallback_name = str(r["customer_name"] or "").strip()
+        name, name_candidates = _resolve_customer_profile(conn, customer_id, fallback_name=fallback_name)
+        cdir = _find_customer_dir_from_candidates(work_dir, name_candidates)
         if not cdir:
-            err.append(f"{name}: customer folder not found")
+            expect = name or fallback_name or f"customer_id={customer_id}"
+            err.append(f"{expect}: customer folder not found, please create folder '{expect}'")
             continue
         try:
             xlsx = _pick_receipt_xlsx(cdir, name)
@@ -809,7 +907,6 @@ class MonthlyUpdateResult:
 
 def monthly_create_sheet(work_dir: Path, year: int, month: int) -> MonthlyUpdateResult:
     ym = f"{year:04d} {month}"
-    ym_alt = f"{year:04d} {month:02d}"
     files = [
         p for p in work_dir.rglob("*")
         if p.is_file() and p.suffix.lower() == ".xlsx" and not p.name.startswith("~$") and "收货清单" in p.name
@@ -819,8 +916,8 @@ def monthly_create_sheet(work_dir: Path, year: int, month: int) -> MonthlyUpdate
     for p in files:
         try:
             wb = openpyxl.load_workbook(p)
-            names_norm = {" ".join(str(x).strip().split()) for x in wb.sheetnames}
-            if ym not in names_norm and ym_alt not in names_norm:
+            existed = _find_month_sheet_name(wb, year, month)
+            if not existed:
                 wb.create_sheet(title=ym)
                 if wb.worksheets:
                     wb.active = len(wb.worksheets) - 1

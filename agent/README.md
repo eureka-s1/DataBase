@@ -17,6 +17,7 @@
 - `pipeline.md`：业务主流程（导入 -> 组柜 -> 出仓）
 - `format/daily_receipts_2026data_format_sample.md`：每日收货清单格式采样
 - `format/customer_receipts_2026data_format_sample.md`：客户收货清单（多Sheet）格式采样
+- `format/container_lists_2026data_format_sample.md`：装柜清单（月文件）格式采样与字段映射
 
 ## 5. 导入测试报告
 - `reports/import_loop_report.md`：导入循环测试报告

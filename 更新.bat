@@ -6,9 +6,9 @@ REM DataBase one-click downloader/updater/runner (Windows)
 REM Distribute this file only, then users can sync and run.
 REM
 REM Usage:
-REM   update_from_github.bat                 sync + start
-REM   update_from_github.bat --sync-only     sync only
-REM   update_from_github.bat --start-only    start only
+REM   更新.bat                 sync + start
+REM   更新.bat --sync-only     sync only
+REM   更新.bat --start-only    start only
 REM =========================================================
 
 set "REPO_URL=https://github.com/eureka-s1/DataBase"
@@ -19,7 +19,7 @@ set "REPO_DIR_NAME=DataBase"
 set "SCRIPT_DIR=%~dp0"
 set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 set "PROJECT_DIR="
-set "LOG_FILE=%SCRIPT_DIR%\update_from_github.log"
+set "LOG_FILE=%SCRIPT_DIR%\更新.log"
 set "MODE=sync_start"
 
 echo.>"%LOG_FILE%"

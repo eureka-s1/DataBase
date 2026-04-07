@@ -839,3 +839,35 @@
     - 自动月份更新在每月 1 日首次触发前先弹窗确认；
     - 月份 Sheet 命名规范化为 `yyyy mm`（如 `2026 04`）。
 - 更新原因：落实 pipeline 中“导入后回写客户文件、出仓后回写结算标记、按月分 Sheet”的闭环流程。
+
+### 64. 文件同步增强（客户名异常检测 + 别名导出 + 月份 Sheet 模糊匹配）
+- 时间：2026-04-07
+- 更新内容：
+  - `app/services/file_sync.py` 新增客户解析与文件夹匹配增强：
+    - 导出时优先按 `customer_id` 解析主名与全部激活别名（`customers + customer_aliases`）；
+    - 文件夹查找支持“主名/别名候选 + 大小写/空格归一匹配”；
+    - 若客户目录不存在，返回明确异常：`customer folder not found, please create folder 'xxx'`。
+  - 适用范围：
+    - 收货同步：`sync_receipts_by_batch`
+    - 出仓同步到客户：`sync_outbound_container_to_customers`
+  - 月份 sheet 识别增强：
+    - 新增月份解析函数，`yyyy m`、`yyyy mm`、`yyyy-m`、`yyyy m月` 统一识别为同月；
+    - `_ensure_month_sheet` 与 `monthly_create_sheet` 均改为先模糊匹配，命中时不重复建 sheet。
+- 更新原因：解决“客户别名导致导出落错目录/目录不存在无提示”与“同月重复建 sheet（如 2026 4 与 2026 04）”问题。
+
+### 65. Windows 启动/更新脚本中文命名与文档统一
+- 时间：2026-04-07
+- 更新内容：
+  - 脚本重命名：
+    - `start_windows.bat` -> `启动.bat`
+    - `update_from_github.bat` -> `更新.bat`
+  - 同步更新文档引用与脚本文案：
+    - `README.md`
+    - `agent/import/import_data.md`
+    - `scripts/package_release.py`（发布说明模板）
+    - `更新.bat`（脚本头部用法说明、日志名改为 `更新.log`）
+  - 文档索引与格式说明补齐：
+    - `agent/README.md` 新增装柜清单格式文档入口；
+    - `agent/pipeline.md` 对齐“收货同步/出仓同步/月份更新”流程；
+    - `agent/format/container_lists_2026data_format_sample.md` 按最新同步口径重写。
+- 更新原因：统一一线用户使用命名，减少脚本入口混淆，并确保文档与当前实现保持一致。
