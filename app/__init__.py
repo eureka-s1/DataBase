@@ -10,7 +10,7 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 from .config import BACKUP_DIR, DB_PATH, IMPORT_UPLOAD_DIR, SECRET_KEY
 from .db import db_session, init_db
 from .services.auth import authenticate, change_password
-from .services.backup import backup_sqlite
+from .services.backup import backup_sqlite, list_backup_files, restore_sqlite_from_backup
 from .services.containers import (
     add_item_to_container,
     container_manifest,
@@ -625,6 +625,31 @@ def create_app() -> Flask:
                 (str(out), out.stat().st_size, 'SUCCESS', 'manual backup'),
             )
         return {'backup_file': str(out)}
+
+    @app.route('/backups', methods=['GET'])
+    @login_required
+    def backups_api():
+        return {"items": list_backup_files(BACKUP_DIR)}
+
+    @app.route('/backups/restore', methods=['POST'])
+    @login_required
+    def restore_backup_api():
+        payload = request.get_json(force=True) or {}
+        raw_name = str(payload.get('file_name') or '').strip()
+        file_name = Path(raw_name).name
+        if not file_name:
+            return {'error': 'file_name is required'}, 400
+        backup_root = BACKUP_DIR.resolve()
+        backup_file = (BACKUP_DIR / file_name).resolve()
+        if str(backup_file.parent) != str(backup_root):
+            return {'error': 'invalid backup file path'}, 400
+        restore_sqlite_from_backup(DB_PATH, backup_file)
+        with db_session() as conn:
+            conn.execute(
+                'INSERT INTO backup_jobs(backup_time, backup_file, size_bytes, status, message) VALUES (datetime("now"), ?, ?, ?, ?)',
+                (str(backup_file), backup_file.stat().st_size, 'SUCCESS', 'manual restore'),
+            )
+        return {'ok': True, 'restored_from': str(backup_file)}
 
     @app.route('/import/inbound/preview', methods=['POST'])
     @login_required

@@ -789,7 +789,9 @@
               <button class="btn" id="btnExportInventory" type="button">导出库存</button>
               <button class="btn" id="btnExportLedger" type="button">导出总账</button>
               <button class="btn primary" id="btnBackup" type="button">立即备份</button>
+              <button class="btn" id="btnBackupRefresh" type="button">刷新备份列表</button>
             </div>
+            <table id="tableBackups" style="margin-top:8px;"></table>
             <pre id="ioResult" style="margin-top:8px;"></pre>
           </div>
         </div>
@@ -899,6 +901,7 @@
       importBatches: [],
       syncReceiptBatches: [],
       syncOutboundContainers: [],
+      backups: [],
       settings: { work_dir: '' },
       plannerAvailable: [],
       plannerSelected: [],
@@ -1077,6 +1080,25 @@
         </tr>`;
       });
       renderTable(byId('tableSyncOutbound'), ['柜次ID', '柜号', '货物条数', '同步状态', '操作'], rows);
+    }
+
+    async function refreshBackups(limit = 300) {
+      const r = await api('/backups');
+      const items = Array.isArray(r.items) ? r.items : [];
+      state.backups = items.slice(0, Math.max(1, Number(limit || 300)));
+      const rows = state.backups.map(b => {
+        const version = b.version || '';
+        const modified = formatDateDisplay(b.modified_at, true);
+        const sizeMb = (Number(b.size_bytes || 0) / (1024 * 1024)).toFixed(2);
+        return `<tr>
+          <td>${version}</td>
+          <td>${b.file_name || ''}</td>
+          <td>${modified}</td>
+          <td>${sizeMb} MB</td>
+          <td><button class="btn btnBackupRestore" data-file-name="${b.file_name || ''}">回滚到该版本</button></td>
+        </tr>`;
+      });
+      renderTable(byId('tableBackups'), ['版本（日期名）', '文件名', '修改时间', '大小', '操作'], rows);
     }
 
     async function maybePromptMonthlyAutoRun() {
@@ -1724,6 +1746,7 @@
       await refreshContainers();
       await refreshStatements();
       await refreshPayments();
+      await refreshBackups().catch(() => {});
       const ledgerRows = await api('/ledger');
       state.ledger = ledgerRows;
       renderLedger(ledgerRows);
@@ -2880,8 +2903,33 @@
         try {
           const r = await api('/backup', 'POST', {});
           byId('ioResult').textContent = JSON.stringify(r, null, 2);
+          await refreshBackups();
           setMsg('数据库备份完成');
         } catch (err) { setMsg(err.message, false); }
+      };
+      byId('btnBackupRefresh').onclick = async () => {
+        try {
+          await refreshBackups();
+          setMsg('备份列表已刷新');
+        } catch (err) { setMsg(err.message, false); }
+      };
+      byId('tableBackups').onclick = async (e) => {
+        const btn = e.target.closest('.btnBackupRestore');
+        if (!btn) return;
+        const fileName = String(btn.dataset.fileName || '').trim();
+        if (!fileName) return;
+        if (!confirm(`确认回滚到备份版本 ${fileName} 吗？\n该操作会覆盖当前数据库。`)) return;
+        try {
+          showRunningModal(`正在回滚数据库到 ${fileName} ...`, '正在执行');
+          const r = await api('/backups/restore', 'POST', { file_name: fileName });
+          byId('ioResult').textContent = JSON.stringify(r, null, 2);
+          await refreshAllViews();
+          finishRunningModal(`回滚完成：${r.restored_from || fileName}`, '执行完成');
+          setMsg('数据库回滚完成');
+        } catch (err) {
+          finishRunningModal(`数据库回滚失败：${err.message}`, '执行失败');
+          setMsg(err.message, false);
+        }
       };
 
       byId('formSyncReceiptsQuery').onsubmit = async (e) => {
@@ -3070,6 +3118,7 @@
     renderContainerDetails();
     refreshSummary().catch(() => {});
     refreshPayments().catch(() => {});
+    refreshBackups().catch(() => {});
     refreshImportBatches('', '', 20).catch(() => {});
     refreshPlannerData().catch(() => {});
     refreshSettings().then(async () => {
