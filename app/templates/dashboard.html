@@ -1062,14 +1062,18 @@
     async function refreshSyncOutbound(limit = 300) {
       state.syncOutboundContainers = await api(`/sync/outbound/containers?limit=${encodeURIComponent(String(limit || 300))}`);
       const rows = (state.syncOutboundContainers || []).map(c => {
-        const synced = String(c.outbound_synced_at || '').trim();
-        const status = synced ? `已同步 ${formatDateDisplay(synced, true)}` : '未同步';
+        const sManifest = String(c.outbound_manifest_synced_at || '').trim();
+        const sCustomers = String(c.outbound_customers_synced_at || c.outbound_synced_at || '').trim();
+        const status = `装柜清单：${sManifest ? `已同步 ${formatDateDisplay(sManifest)}` : '未同步'} / 客户文件：${sCustomers ? `已同步 ${formatDateDisplay(sCustomers)}` : '未同步'}`;
         return `<tr>
           <td>${c.id ?? ''}</td>
           <td>${c.container_no || ''}</td>
           <td>${c.item_count ?? 0}</td>
           <td>${status}</td>
-          <td><button class="btn btnSyncOutboundContainer" data-container-id="${c.id}">执行同步</button></td>
+          <td>
+            <button class="btn btnSyncOutboundManifest" data-container-id="${c.id}">同步装柜清单</button>
+            <button class="btn btnSyncOutboundCustomers" data-container-id="${c.id}">同步客户文件</button>
+          </td>
         </tr>`;
       });
       renderTable(byId('tableSyncOutbound'), ['柜次ID', '柜号', '货物条数', '同步状态', '操作'], rows);
@@ -2919,24 +2923,55 @@
         } catch (err) { setMsg(err.message, false); }
       };
       byId('tableSyncOutbound').onclick = async (e) => {
-        const btn = e.target.closest('.btnSyncOutboundContainer');
-        if (!btn) return;
-        const containerId = Number(btn.dataset.containerId || 0);
+        const btnManifest = e.target.closest('.btnSyncOutboundManifest');
+        const btnCustomers = e.target.closest('.btnSyncOutboundCustomers');
+        if (!btnManifest && !btnCustomers) return;
+        const containerId = Number((btnManifest || btnCustomers).dataset.containerId || 0);
         if (!containerId) return;
-        if (!confirm(`确认执行柜次 ${containerId} 的出仓同步吗？`)) return;
-        try {
-          showRunningModal(`柜次 ${containerId} 出仓同步正在运行...`, '正在执行');
-          const r = await api(`/sync/outbound/container/${containerId}`, 'POST', {});
-          const details = (Array.isArray(r.updated_files) ? r.updated_files : [])
-            .map(x => `- ${x.customer_name || ''}: ${x.file_path || ''}`)
-            .join('\n');
-          finishRunningModal(
-            `柜次 ${containerId} 同步完成：更新文件 ${r.files_updated || 0} 个。${details ? `\n\n已更新文件：\n${details}` : ''}`,
-            '执行完成'
-          );
-          await refreshSyncOutbound();
-        } catch (err) {
-          finishRunningModal(`出仓同步失败：${err.message}`, '执行失败');
+
+        if (btnManifest) {
+          if (!confirm(`确认执行柜次 ${containerId} 的“装柜清单同步”吗？`)) return;
+          try {
+            showRunningModal(`柜次 ${containerId} 装柜清单同步正在运行...`, '正在执行');
+            let r = await api(`/sync/outbound/container/${containerId}/to-manifest`, 'POST', { allow_create: false });
+            if (r && r.ok === false && r.need_create) {
+              const yes = confirm(`未找到当月装柜文件。\n建议创建：${r.suggest_create_path}\n是否立即创建并继续同步？`);
+              if (!yes) {
+                finishRunningModal('已取消创建当月装柜文件。', '已取消');
+                return;
+              }
+              r = await api(`/sync/outbound/container/${containerId}/to-manifest`, 'POST', { allow_create: true });
+            }
+            const details = (Array.isArray(r.updated_files) ? r.updated_files : [])
+              .map(x => `- ${x.customer_name || ''}: ${x.file_path || ''}`)
+              .join('\n');
+            finishRunningModal(
+              `柜次 ${containerId} 装柜清单同步完成：更新文件 ${r.files_updated || 0} 个。${details ? `\n\n已更新文件：\n${details}` : ''}`,
+              '执行完成'
+            );
+            await refreshSyncOutbound();
+          } catch (err) {
+            finishRunningModal(`装柜清单同步失败：${err.message}`, '执行失败');
+          }
+          return;
+        }
+
+        if (btnCustomers) {
+          if (!confirm(`确认执行柜次 ${containerId} 的“客户文件同步”吗？`)) return;
+          try {
+            showRunningModal(`柜次 ${containerId} 客户文件同步正在运行...`, '正在执行');
+            const r = await api(`/sync/outbound/container/${containerId}/to-customers`, 'POST', {});
+            const details = (Array.isArray(r.updated_files) ? r.updated_files : [])
+              .map(x => `- ${x.customer_name || ''}: ${x.file_path || ''}`)
+              .join('\n');
+            finishRunningModal(
+              `柜次 ${containerId} 客户文件同步完成：更新文件 ${r.files_updated || 0} 个。${details ? `\n\n已更新文件：\n${details}` : ''}`,
+              '执行完成'
+            );
+            await refreshSyncOutbound();
+          } catch (err) {
+            finishRunningModal(`客户文件同步失败：${err.message}`, '执行失败');
+          }
         }
       };
 

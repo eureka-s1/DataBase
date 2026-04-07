@@ -38,6 +38,10 @@ def ensure_sync_columns(conn: Connection) -> None:
     cols_ct = {str(r["name"]) for r in conn.execute("PRAGMA table_info(containers)").fetchall()}
     if "outbound_synced_at" not in cols_ct:
         conn.execute("ALTER TABLE containers ADD COLUMN outbound_synced_at TEXT")
+    if "outbound_customers_synced_at" not in cols_ct:
+        conn.execute("ALTER TABLE containers ADD COLUMN outbound_customers_synced_at TEXT")
+    if "outbound_manifest_synced_at" not in cols_ct:
+        conn.execute("ALTER TABLE containers ADD COLUMN outbound_manifest_synced_at TEXT")
 
 
 def _find_customer_dir(work_dir: Path, customer_name: str) -> Path | None:
@@ -175,7 +179,19 @@ def _xls_to_xlsx_preserve_style(xls_path: Path, out: Path) -> None:
                     xw.value = iv if v == float(iv) else v
                 elif cell.ctype == xlrd.XL_CELL_DATE:
                     try:
-                        xw.value = xlrd.xldate_as_datetime(cell.value, book.datemode)
+                        dtv = xlrd.xldate_as_datetime(cell.value, book.datemode)
+                        if (
+                            hasattr(dtv, "hour")
+                            and hasattr(dtv, "minute")
+                            and hasattr(dtv, "second")
+                            and dtv.hour == 0
+                            and dtv.minute == 0
+                            and dtv.second == 0
+                        ):
+                            xw.value = dtv.date()
+                            xw.number_format = "yyyy-mm-dd"
+                        else:
+                            xw.value = dtv
                     except Exception:
                         xw.value = cell.value
                 elif cell.ctype == xlrd.XL_CELL_BOOLEAN:
@@ -327,27 +343,27 @@ def _write_section_header(ws, row_no: int, customer_name: str, customer_phone: s
 
 
 def _ensure_column_widths(ws) -> None:
-    # 统一列宽放大约 40%，材质列（F）放大约 80%
-    base = {
-        "A": 12,
-        "B": 14,
-        "C": 12,
-        "D": 14,
-        "E": 18,
-        "F": 12,
-        "G": 10,
-        "H": 10,
-        "I": 12,
-        "J": 12,
-        "K": 10,
-        "L": 10,
-        "M": 10,
-        "N": 10,
-        "O": 10,
+    # Baseline from: 2026data/ONWA/ONWA 2026收货清单.xls (all sheets, median explicit width)
+    # Keep fixed widths for stable layout across synced rows.
+    width_map = {
+        "A": 11.60,
+        "B": 9.00,
+        "C": 9.40,
+        "D": 16.00,
+        "E": 9.00,
+        "F": 11.60,
+        "G": 9.00,
+        "H": 9.00,
+        "I": 17.30,
+        "J": 12.70,
+        "K": 12.70,
+        "L": 9.40,
+        "M": 9.00,
+        "N": 9.00,
+        "O": 9.00,
     }
-    for col, b in base.items():
-        mul = 1.44 if col == "F" else 1.12
-        ws.column_dimensions[col].width = round(float(b) * mul, 2)
+    for col, w in width_map.items():
+        ws.column_dimensions[col].width = float(w)
 
 
 _CONTAINER_TOKEN = re.compile(r"(?i)\b(?:[A-Z]{4,5}\d{6,8}|[A-Z]{1,5}\d{5,})\b")
@@ -361,6 +377,26 @@ def _row_values(ws, row_no: int, max_col: int = 14) -> list[str]:
     return out
 
 
+def _sheet_has_any_content(ws, max_scan_rows: int = 400, max_scan_cols: int = 20) -> bool:
+    mr = int(ws.max_row or 0)
+    if mr <= 0:
+        return False
+    for r in range(1, min(mr, max_scan_rows) + 1):
+        for c in range(1, max_scan_cols + 1):
+            v = ws.cell(r, c).value
+            if str(v or "").strip():
+                return True
+    return False
+
+
+def _pick_last_non_empty_sheet(wb):
+    for s in reversed(wb.sheetnames):
+        ws = wb[s]
+        if _sheet_has_any_content(ws):
+            return ws
+    return wb[wb.sheetnames[-1]]
+
+
 def _is_settlement_marker_values(values: list[str]) -> bool:
     text = " ".join(values)
     return bool(_CONTAINER_TOKEN.search(text))
@@ -369,6 +405,22 @@ def _is_settlement_marker_values(values: list[str]) -> bool:
 def _is_header_values(values: list[str]) -> bool:
     joined = " ".join(values).upper()
     return ("SHOP NO" in joined and "ITEM NO" in joined) or ("日期" in joined and "SHOP NO" in joined)
+
+
+def _apply_customer_settlement_widths_d_to_k(ws) -> None:
+    # From customer_receipts_2026data_format_sample.md baseline (D-K)
+    width_map = {
+        "D": 16.00,
+        "E": 9.00,
+        "F": 11.60,
+        "G": 9.00,
+        "H": 9.00,
+        "I": 17.30,
+        "J": 12.70,
+        "K": 12.70,
+    }
+    for col, w in width_map.items():
+        ws.column_dimensions[col].width = float(w)
 
 
 def _sheet_needs_new_section(ws) -> bool:
@@ -518,6 +570,7 @@ def list_outbound_sync_containers(conn: Connection, limit: int = 200) -> list[di
     rows = conn.execute(
         """
         SELECT c.id, c.container_no, c.status, c.confirmed_at, c.outbound_synced_at,
+               c.outbound_customers_synced_at, c.outbound_manifest_synced_at,
                COALESCE((SELECT COUNT(*) FROM container_items ci WHERE ci.container_id=c.id), 0) AS item_count
         FROM containers c
         WHERE c.status='CONFIRMED'
@@ -529,7 +582,7 @@ def list_outbound_sync_containers(conn: Connection, limit: int = 200) -> list[di
     return [dict(r) for r in rows]
 
 
-def sync_outbound_container(conn: Connection, container_id: int, work_dir: Path) -> dict:
+def _get_outbound_container_customer_rows(conn: Connection, container_id: int):
     ensure_sync_columns(conn)
     c = conn.execute("SELECT * FROM containers WHERE id=? AND status='CONFIRMED'", (container_id,)).fetchone()
     if not c:
@@ -548,14 +601,20 @@ def sync_outbound_container(conn: Connection, container_id: int, work_dir: Path)
         """,
         (container_id,),
     ).fetchall()
+    return c, rows
+
+
+def sync_outbound_container_to_customers(conn: Connection, container_id: int, work_dir: Path) -> dict:
+    c, rows = _get_outbound_container_customer_rows(conn, container_id)
     if not rows:
         return {"container_id": container_id, "customers": 0, "files_updated": 0, "errors": ["container has no items"]}
 
     files_updated = 0
     updated_files: list[dict] = []
     err: list[str] = []
-    date_text = datetime.now().strftime("%Y/%m/%d")
+    date_text = datetime.now().strftime("%Y-%m-%d")
     unit_price = to_float(c["default_price_per_m3"], 0.0)
+    fx_cny = 7.0
 
     for r in rows:
         name = str(r["customer_name"])
@@ -566,18 +625,30 @@ def sync_outbound_container(conn: Connection, container_id: int, work_dir: Path)
         try:
             xlsx = _pick_receipt_xlsx(cdir, name)
             wb = openpyxl.load_workbook(xlsx)
-            ws = wb[wb.sheetnames[-1]]
+            ws = _pick_last_non_empty_sheet(wb)
+            _apply_customer_settlement_widths_d_to_k(ws)
             row_no = ws.max_row + 3
             ctns = to_int(r["ctns"], 0)
             cbm = round(to_float(r["cbm_total"], 0.0), 3)
             freight_usd = round(cbm * unit_price, 2)
-            ws.cell(row_no, 4, str(c["container_no"] or ""))
-            ws.cell(row_no, 5, f"{ctns} CTNS")
-            ws.cell(row_no, 6, str(r["customer_phone"] or ""))
-            ws.cell(row_no, 7, name)
-            ws.cell(row_no, 8, date_text)
-            ws.cell(row_no, 9, f"{cbm} CBM FREIGHT")
-            ws.cell(row_no, 11, freight_usd)
+            freight_cny = round(freight_usd * fx_cny, 2)
+            vals = {
+                4: str(c["container_no"] or ""),
+                5: f"{ctns} CTNS",
+                6: str(r["customer_phone"] or ""),
+                7: name,
+                8: date_text,
+                9: f"{cbm} CBM FREIGHT",
+                10: freight_cny,
+                11: freight_usd,
+            }
+            for cno, v in vals.items():
+                cell = ws.cell(row_no, cno, v)
+                cell.font = Font(name="宋体", size=11, bold=False)
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                cell.border = _BORDER_THIN
+            ws.cell(row_no, 10).number_format = "¥#,##0.00"
+            ws.cell(row_no, 11).number_format = "$#,##0.00"
             if wb.worksheets:
                 wb.active = len(wb.worksheets) - 1
             wb.save(xlsx)
@@ -586,7 +657,11 @@ def sync_outbound_container(conn: Connection, container_id: int, work_dir: Path)
         except Exception as e:
             err.append(f"{name}: {e}")
 
-    conn.execute("UPDATE containers SET outbound_synced_at=?, updated_at=? WHERE id=?", (now_ts(), now_ts(), container_id))
+    ts = now_ts()
+    conn.execute(
+        "UPDATE containers SET outbound_synced_at=?, outbound_customers_synced_at=?, updated_at=? WHERE id=?",
+        (ts, ts, ts, container_id),
+    )
     return {
         "container_id": container_id,
         "customers": len(rows),
@@ -594,6 +669,134 @@ def sync_outbound_container(conn: Connection, container_id: int, work_dir: Path)
         "updated_files": updated_files,
         "errors": err,
     }
+
+
+def _choose_month_manifest_file(work_dir: Path, year: int, month: int, allow_create: bool) -> tuple[Path | None, bool, str]:
+    manifest_dir = work_dir / "装柜清单"
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    candidates = [
+        manifest_dir / f"{year} {month}月.xlsx",
+        manifest_dir / f"{year} {month}.xlsx",
+        manifest_dir / f"{year} {month}月.xls",
+        manifest_dir / f"{year} {month}.xls",
+    ]
+    for p in candidates:
+        if p.exists() and p.suffix.lower() == ".xlsx":
+            return p, False, ""
+        if p.exists() and p.suffix.lower() == ".xls":
+            x = _convert_xls_to_xlsx(p, force=True)
+            return x, False, ""
+    create_target = manifest_dir / f"{year} {month}月.xlsx"
+    if not allow_create:
+        return None, True, str(create_target)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    wb.save(create_target)
+    return create_target, False, ""
+
+
+def sync_outbound_container_to_manifest(conn: Connection, container_id: int, work_dir: Path, allow_create: bool = False) -> dict:
+    c, rows = _get_outbound_container_customer_rows(conn, container_id)
+    if not rows:
+        return {"container_id": container_id, "customers": 0, "files_updated": 0, "errors": ["container has no items"]}
+
+    try:
+        dt = datetime.strptime(str(c["confirmed_at"] or "")[:10], "%Y-%m-%d")
+    except Exception:
+        dt = datetime.now()
+    manifest_file, need_create, suggest = _choose_month_manifest_file(work_dir, dt.year, dt.month, allow_create=allow_create)
+    if need_create:
+        return {
+            "ok": False,
+            "need_create": True,
+            "message": "monthly manifest file not found",
+            "suggest_create_path": suggest,
+            "container_id": container_id,
+        }
+    if not manifest_file:
+        raise ValueError("monthly manifest file not found")
+
+    # master customer first
+    master_id = c["master_customer_id"]
+    if master_id:
+        by_name = {str(r["customer_name"]): r for r in rows}
+        mrow = conn.execute("SELECT name FROM customers WHERE id=?", (master_id,)).fetchone()
+        if mrow and str(mrow["name"]) in by_name:
+            master_name = str(mrow["name"])
+            rest = [r for r in rows if str(r["customer_name"]) != master_name]
+            rest.sort(key=lambda x: str(x["customer_name"] or ""))
+            rows_sorted = [by_name[master_name]] + rest
+        else:
+            rows_sorted = sorted(rows, key=lambda x: str(x["customer_name"] or ""))
+    else:
+        rows_sorted = sorted(rows, key=lambda x: str(x["customer_name"] or ""))
+
+    wb = openpyxl.load_workbook(manifest_file)
+    ws = wb[wb.sheetnames[0]] if wb.sheetnames else wb.create_sheet("Sheet1")
+    start = ws.max_row + 3 if ws.max_row > 0 else 1
+    date_text = dt.strftime("%Y-%m-%d")
+    unit_price = to_float(c["default_price_per_m3"], 0.0)
+    container_capacity = to_float(c["capacity_cbm"], 68.0)
+    total_freight = round(container_capacity * unit_price, 2)
+
+    # row 1
+    head_vals = {1: date_text, 2: str(c["container_no"] or ""), 3: "", 4: "", 5: total_freight}
+    for cno, v in head_vals.items():
+        cell = ws.cell(start, cno, v)
+        cell.font = Font(name="宋体", size=11, bold=False)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = _BORDER_THIN
+    ws.cell(start, 5).number_format = "$#,##0.00"
+    # row 2 header
+    hdr = ["PHONE NUMBER", "NAME", "CBM", "CTN", "FREIGHT"]
+    for idx, h in enumerate(hdr, start=1):
+        cell = ws.cell(start + 1, idx, h)
+        cell.font = Font(name="宋体", size=11, bold=False)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = _BORDER_THIN
+    # rows customers
+    for i, r in enumerate(rows_sorted, start=0):
+        rr = start + 2 + i
+        ctns = to_int(r["ctns"], 0)
+        cbm = round(to_float(r["cbm_total"], 0.0), 3)
+        freight = round(cbm * unit_price, 2)
+        vals = [str(r["customer_phone"] or ""), str(r["customer_name"] or ""), cbm, ctns, freight]
+        for cno, v in enumerate(vals, start=1):
+            cell = ws.cell(rr, cno, v)
+            cell.font = Font(name="宋体", size=11, bold=False)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = _BORDER_THIN
+        ws.cell(rr, 5).number_format = "$#,##0.00"
+
+    # keep base widths from 2026 4月.xlsx
+    ws.column_dimensions["A"].width = 14.4444
+    ws.column_dimensions["B"].width = 19.7778
+    ws.column_dimensions["C"].width = 13
+    ws.column_dimensions["D"].width = 13
+    ws.column_dimensions["E"].width = 14.3333
+    if wb.worksheets:
+        wb.active = 0
+    wb.save(manifest_file)
+
+    ts = now_ts()
+    conn.execute(
+        "UPDATE containers SET outbound_manifest_synced_at=?, updated_at=? WHERE id=?",
+        (ts, ts, container_id),
+    )
+    return {
+        "ok": True,
+        "container_id": container_id,
+        "customers": len(rows_sorted),
+        "files_updated": 1,
+        "updated_files": [{"file_path": str(manifest_file), "customer_name": "装柜清单"}],
+        "errors": [],
+    }
+
+
+def sync_outbound_container(conn: Connection, container_id: int, work_dir: Path) -> dict:
+    # backward-compatible: keep old endpoint syncing customer files only
+    return sync_outbound_container_to_customers(conn, container_id, work_dir)
 
 
 @dataclass

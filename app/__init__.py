@@ -79,6 +79,8 @@ from .services.file_sync import (
     list_receipt_sync_batches,
     monthly_create_sheet,
     sync_outbound_container,
+    sync_outbound_container_to_customers,
+    sync_outbound_container_to_manifest,
     sync_receipts_by_batch,
 )
 import scripts.import_historical_in_stock as hist_import
@@ -805,6 +807,32 @@ def create_app() -> Flask:
         with db_session() as conn:
             ensure_sync_columns(conn)
             result = sync_outbound_container(conn, container_id, work_dir)
+        return result
+
+    @app.route('/sync/outbound/container/<int:container_id>/to-customers', methods=['POST'])
+    @login_required
+    def sync_outbound_container_to_customers_api(container_id: int):
+        s = get_ui_settings()
+        work_dir = Path(s.get('work_dir') or '').expanduser().resolve()
+        if not work_dir.exists() or not work_dir.is_dir():
+            return {'error': 'work directory not found'}, 400
+        with db_session() as conn:
+            ensure_sync_columns(conn)
+            result = sync_outbound_container_to_customers(conn, container_id, work_dir)
+        return result
+
+    @app.route('/sync/outbound/container/<int:container_id>/to-manifest', methods=['POST'])
+    @login_required
+    def sync_outbound_container_to_manifest_api(container_id: int):
+        payload = request.get_json(force=True) or {}
+        allow_create = bool(payload.get('allow_create', False))
+        s = get_ui_settings()
+        work_dir = Path(s.get('work_dir') or '').expanduser().resolve()
+        if not work_dir.exists() or not work_dir.is_dir():
+            return {'error': 'work directory not found'}, 400
+        with db_session() as conn:
+            ensure_sync_columns(conn)
+            result = sync_outbound_container_to_manifest(conn, container_id, work_dir, allow_create=allow_create)
         return result
 
     @app.route('/sync/monthly/settings', methods=['PUT'])
