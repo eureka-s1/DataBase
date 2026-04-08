@@ -23,6 +23,22 @@ _BORDER_THIN = Border(
     top=Side(style="thin", color="000000"),
     bottom=Side(style="thin", color="000000"),
 )
+_FX_CNY = 7.0
+
+
+def _num(v) -> float:
+    try:
+        return float(v or 0)
+    except Exception:
+        return 0.0
+
+
+def _cbm_1(v) -> float:
+    return round(_num(v), 1)
+
+
+def _cny_int(v) -> int:
+    return int(round(_num(v) * _FX_CNY))
 
 
 def _style_songti_center_border(cell) -> None:
@@ -581,7 +597,11 @@ def sync_receipts_by_batch(conn: Connection, batch_id: int, work_dir: Path) -> d
     row_count = 0
     row_ptr: dict[tuple[int, int, int], int] = {}
     first_meta_written: dict[tuple[int, int, int], int] = {}
-    for customer_id, items in grouped.items():
+    grouped_items = sorted(
+        grouped.items(),
+        key=lambda kv: str(kv[1][0]["customer_name"] or "").strip().upper(),
+    )
+    for customer_id, items in grouped_items:
         fallback_name = str(items[0]["customer_name"] or "").strip()
         customer_name, name_candidates = _resolve_customer_profile(conn, customer_id, fallback_name=fallback_name)
         cdir = _find_customer_dir_from_candidates(work_dir, name_candidates)
@@ -594,7 +614,16 @@ def sync_receipts_by_batch(conn: Connection, batch_id: int, work_dir: Path) -> d
             wb = openpyxl.load_workbook(xlsx)
             phone = str(items[0]["customer_phone"] or "").strip()
             changed = False
-            for it in items:
+            items_sorted = sorted(
+                items,
+                key=lambda x: (
+                    str(x["shop_no"] or "").strip().upper(),
+                    str(x["inbound_date"] or ""),
+                    int(x["id"] or 0),
+                ),
+            )
+            last_shop_by_key: dict[tuple[int, int, int], str] = {}
+            for it in items_sorted:
                 try:
                     d = datetime.strptime(str(it["inbound_date"]), "%Y-%m-%d")
                 except Exception:
@@ -608,8 +637,13 @@ def sync_receipts_by_batch(conn: Connection, batch_id: int, work_dir: Path) -> d
                         row_ptr[key] = start + 2
                     else:
                         row_ptr[key] = ws.max_row + 2
+                cur_shop = str(it["shop_no"] or "").strip().upper()
+                prev_shop = last_shop_by_key.get(key)
+                if prev_shop is not None and cur_shop != prev_shop:
+                    row_ptr[key] += 1
                 rno = row_ptr[key]
                 row_ptr[key] = rno + 1
+                last_shop_by_key[key] = cur_shop
                 if key not in first_meta_written:
                     col1 = customer_name
                     first_meta_written[key] = 1
@@ -638,6 +672,10 @@ def sync_receipts_by_batch(conn: Connection, batch_id: int, work_dir: Path) -> d
                 for cno, v in enumerate(vals, start=1):
                     cell = ws.cell(rno, cno, v)
                     _style_songti_center_border(cell)
+                ws.cell(rno, 9).number_format = "$#,##0"
+                ws.cell(rno, 10).number_format = "$#,##0"
+                ws.cell(rno, 11).number_format = "$#,##0"
+                ws.cell(rno, 12).number_format = "0.0"
                 row_count += 1
                 changed = True
             if changed:
@@ -709,7 +747,7 @@ def sync_outbound_container_to_customers(conn: Connection, container_id: int, wo
     err: list[str] = []
     date_text = datetime.now().strftime("%Y/%m/%d")
     unit_price = to_float(c["default_price_per_m3"], 0.0)
-    fx_cny = 7.0
+    fx_cny = _FX_CNY
 
     for r in rows:
         customer_id = int(r["customer_id"] or 0)
@@ -727,16 +765,16 @@ def sync_outbound_container_to_customers(conn: Connection, container_id: int, wo
             _apply_customer_settlement_widths_d_to_k(ws)
             row_no = ws.max_row + 3
             ctns = to_int(r["ctns"], 0)
-            cbm = round(to_float(r["cbm_total"], 0.0), 3)
+            cbm = _cbm_1(to_float(r["cbm_total"], 0.0))
             freight_usd = round(cbm * unit_price, 2)
-            freight_cny = round(freight_usd * fx_cny, 2)
+            freight_cny = int(round(freight_usd * fx_cny))
             vals = {
                 4: str(c["container_no"] or ""),
                 5: f"{ctns} CTNS",
                 6: str(r["customer_phone"] or ""),
                 7: name,
                 8: date_text,
-                9: f"{cbm} CBM FREIGHT",
+                9: f"{cbm:.1f} CBM FREIGHT",
                 10: freight_cny,
                 11: freight_usd,
             }
@@ -745,8 +783,8 @@ def sync_outbound_container_to_customers(conn: Connection, container_id: int, wo
                 cell.font = Font(name="宋体", size=11, bold=False)
                 cell.alignment = Alignment(horizontal="center", vertical="center")
                 cell.border = _BORDER_THIN
-            ws.cell(row_no, 10).number_format = "¥#,##0.00"
-            ws.cell(row_no, 11).number_format = "$#,##0.00"
+            ws.cell(row_no, 10).number_format = "¥#,##0"
+            ws.cell(row_no, 11).number_format = "$#,##0"
             if wb.worksheets:
                 wb.active = len(wb.worksheets) - 1
             wb.save(xlsx)
@@ -845,7 +883,7 @@ def sync_outbound_container_to_manifest(conn: Connection, container_id: int, wor
         cell.font = Font(name="宋体", size=11, bold=False)
         cell.alignment = Alignment(horizontal="center", vertical="center")
         cell.border = _BORDER_THIN
-    ws.cell(start, 5).number_format = "$#,##0.00"
+    ws.cell(start, 5).number_format = "$#,##0"
     # row 2 header
     hdr = ["PHONE NUMBER", "NAME", "CBM", "CTN", "FREIGHT"]
     for idx, h in enumerate(hdr, start=1):
@@ -857,7 +895,7 @@ def sync_outbound_container_to_manifest(conn: Connection, container_id: int, wor
     for i, r in enumerate(rows_sorted, start=0):
         rr = start + 2 + i
         ctns = to_int(r["ctns"], 0)
-        cbm = round(to_float(r["cbm_total"], 0.0), 3)
+        cbm = _cbm_1(to_float(r["cbm_total"], 0.0))
         freight = round(cbm * unit_price, 2)
         vals = [str(r["customer_phone"] or ""), str(r["customer_name"] or ""), cbm, ctns, freight]
         for cno, v in enumerate(vals, start=1):
@@ -865,7 +903,7 @@ def sync_outbound_container_to_manifest(conn: Connection, container_id: int, wor
             cell.font = Font(name="宋体", size=11, bold=False)
             cell.alignment = Alignment(horizontal="center", vertical="center")
             cell.border = _BORDER_THIN
-        ws.cell(rr, 5).number_format = "$#,##0.00"
+        ws.cell(rr, 5).number_format = "$#,##0"
 
     # keep base widths from 2026 4月.xlsx
     ws.column_dimensions["A"].width = 14.4444

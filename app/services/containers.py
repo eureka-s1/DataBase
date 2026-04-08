@@ -474,6 +474,7 @@ def container_manifest(conn: Connection, container_id: int) -> tuple[dict, list[
     rows = conn.execute(
         '''
         SELECT ci.inbound_item_id, ci.cbm_at_load, i.inbound_date, i.item_no, i.item_name_cn, i.shop_no, i.status AS item_status,
+               i.material, i.carton_count, i.qty, i.unit_price, i.total_price, i.deposit_hint,
                i.length_cm, i.width_cm, i.height_cm,
                cu.id AS customer_id, cu.name AS customer_name
         FROM container_items ci
@@ -492,12 +493,14 @@ def container_manifest(conn: Connection, container_id: int) -> tuple[dict, list[
 
     customer_summary_rows = conn.execute(
         '''
-        SELECT cu.id AS customer_id, cu.name AS customer_name, COALESCE(SUM(ci.cbm_at_load), 0) AS cbm_total
+        SELECT cu.id AS customer_id, cu.name AS customer_name, COALESCE(cu.phone, '') AS customer_phone,
+               COALESCE(SUM(i.carton_count), 0) AS ctns,
+               COALESCE(SUM(ci.cbm_at_load), 0) AS cbm_total
         FROM container_items ci
         JOIN inbound_items i ON i.id = ci.inbound_item_id
         JOIN customers cu ON cu.id = i.customer_id
         WHERE ci.container_id=?
-        GROUP BY cu.id, cu.name
+        GROUP BY cu.id, cu.name, cu.phone
         ORDER BY cu.name
         ''',
         (container_id,),

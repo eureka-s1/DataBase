@@ -16,6 +16,105 @@ from .containers import container_manifest
 from .finance import ledger
 from .inbound import list_inbound
 
+FX_CNY = 7.0
+
+
+def _num(v) -> float:
+    try:
+        return float(v or 0)
+    except Exception:
+        return 0.0
+
+
+def _cbm_1(v) -> float:
+    return round(_num(v), 1)
+
+
+def _cny_int(v) -> int:
+    return int(round(_num(v) * FX_CNY))
+
+
+def _cny(v) -> float:
+    return _num(v) * FX_CNY
+
+
+def _group_key_text(v) -> str:
+    return str(v or '').strip()
+
+
+def _append_grouped_rows_with_blanks(ws, rows: list[list], customer_idx: int, shop_idx: int) -> None:
+    """
+    Rows are expected to be pre-sorted by customer -> shop.
+    Rule:
+    - same SHOP NO block ends -> append 1 blank row
+    - same customer block ends -> append 1 extra blank row
+    """
+    prev_customer: str | None = None
+    prev_shop: str | None = None
+    for rec in rows:
+        cust = _group_key_text(rec[customer_idx] if customer_idx < len(rec) else '')
+        shop = _group_key_text(rec[shop_idx] if shop_idx < len(rec) else '')
+        if prev_customer is not None:
+            if cust != prev_customer:
+                ws.append([])
+                ws.append([])
+            elif shop != prev_shop:
+                ws.append([])
+        ws.append(rec)
+        prev_customer = cust
+        prev_shop = shop
+    if prev_customer is not None:
+        ws.append([])
+        ws.append([])
+
+
+def _receipt_col_widths() -> list[float]:
+    # same as receipt-sync A-O widths
+    # add one leading "inbound_date" column
+    return [11.60, 11.60, 9.00, 9.40, 16.00, 9.00, 11.60, 9.00, 9.00, 17.30, 12.70, 12.70, 9.40, 9.00, 9.00, 9.00]
+
+
+def _receipt_goods_headers() -> list[str]:
+    # align with receipt-sync field order, no "status"
+    return ['入库日期', '客户', 'SHOP NO', 'TEL', 'ITEM NO', '品名', '材质', 'CTNS', 'QTY', 'PRICE', 'T.PRICE', '定金', 'CBM', '长', '宽', '高']
+
+
+def _customer_rows_sync_like(rows: list[dict], master_customer_id: int | None = None) -> list[dict]:
+    by_name = {str(r.get('customer_name') or ''): r for r in rows}
+    sorted_rows = sorted(rows, key=lambda x: _group_key_text(x.get('customer_name')).upper())
+    if not master_customer_id:
+        return sorted_rows
+    master_row = next((r for r in rows if int(r.get('customer_id') or 0) == int(master_customer_id)), None)
+    if not master_row:
+        return sorted_rows
+    rest = [r for r in sorted_rows if r is not master_row]
+    return [master_row] + rest
+
+
+def _format_receipt_goods_sheet(ws, header_row: int = 1) -> None:
+    for r in range(header_row + 1, ws.max_row + 1):
+        # skip blank separator rows
+        if all(ws.cell(r, c).value in (None, "") for c in range(1, 17)):
+            continue
+        ws.cell(r, 8).number_format = "0"
+        ws.cell(r, 9).number_format = "0"
+        ws.cell(r, 10).number_format = "$#,##0"  # display rounded integer USD
+        ws.cell(r, 11).number_format = "$#,##0"
+        ws.cell(r, 12).number_format = "$#,##0"
+        ws.cell(r, 13).number_format = "0.0"      # CBM 1 decimal display
+        ws.cell(r, 14).number_format = "0.###"
+        ws.cell(r, 15).number_format = "0.###"
+        ws.cell(r, 16).number_format = "0.###"
+
+
+def _format_customer_block_sheet(ws, header_row: int, data_start_row: int) -> None:
+    for r in range(data_start_row, ws.max_row + 1):
+        if all(ws.cell(r, c).value in (None, "") for c in range(1, 6)):
+            continue
+        ws.cell(r, 3).number_format = "0.0"
+        ws.cell(r, 4).number_format = "0"
+        ws.cell(r, 5).number_format = "$#,##0"
+
 
 def _export_dir() -> Path:
     path = Path('exports')
@@ -75,19 +174,20 @@ def export_daily_inbound_excel(conn: Connection, inbound_date: str | None = None
     wb = Workbook()
     ws = wb.active
     ws.title = 'daily_inbound'
-    ws.append([
-        'inbound_no', 'date', 'customer', 'shop_no', 'item_no', 'item_name', 'material',
-        'ctn', 'qty', 'unit_price', 'total_price', 'deposit_hint',
-        'length_cm', 'width_cm', 'height_cm', 'cbm_final', 'status'
-    ])
+    ws.append(_receipt_goods_headers())
+    recs: list[list] = []
     for row in data:
-        ws.append([
-            row.get('inbound_no'), row.get('inbound_date'), row.get('customer_name'), row.get('shop_no'),
+        recs.append([
+            row.get('inbound_date'), row.get('customer_name'), row.get('shop_no'), row.get('position_or_tel'),
             row.get('item_no'), row.get('item_name_cn'), row.get('material'), row.get('carton_count'),
-            row.get('qty'), row.get('unit_price'), row.get('total_price'), row.get('deposit_hint'),
-            row.get('length_cm'), row.get('width_cm'), row.get('height_cm'), row.get('cbm_final'), row.get('status'),
+            row.get('qty'), _num(row.get('unit_price')), _num(row.get('total_price')),
+            _num(row.get('deposit_hint')), _num(row.get('cbm_final')),
+            row.get('length_cm'), row.get('width_cm'), row.get('height_cm'),
         ])
-    _style_sheet(ws, [20, 12, 16, 12, 14, 20, 12, 8, 8, 10, 12, 10, 10, 10, 10, 10, 10])
+    recs.sort(key=lambda r: (_group_key_text(r[1]).upper(), _group_key_text(r[2]).upper(), _group_key_text(r[4]).upper()))
+    _append_grouped_rows_with_blanks(ws, recs, customer_idx=1, shop_idx=2)
+    _style_sheet(ws, _receipt_col_widths())
+    _format_receipt_goods_sheet(ws, header_row=1)
 
     out = _export_dir() / f'daily_inbound_{d}.xlsx'
     wb.save(out)
@@ -99,14 +199,20 @@ def export_inventory_excel(conn: Connection) -> str:
     wb = Workbook()
     ws = wb.active
     ws.title = 'inventory'
-    ws.append(['inbound_no', 'date', 'customer', 'shop_no', 'item_no', 'item_name', 'material', 'ctn', 'qty', 'length_cm', 'width_cm', 'height_cm', 'cbm_final', 'status'])
+    ws.append(_receipt_goods_headers())
+    recs: list[list] = []
     for row in data:
-        ws.append([
-            row.get('inbound_no'), row.get('inbound_date'), row.get('customer_name'), row.get('shop_no'),
+        recs.append([
+            row.get('inbound_date'), row.get('customer_name'), row.get('shop_no'), row.get('position_or_tel'),
             row.get('item_no'), row.get('item_name_cn'), row.get('material'), row.get('carton_count'),
-            row.get('qty'), row.get('length_cm'), row.get('width_cm'), row.get('height_cm'), row.get('cbm_final'), row.get('status'),
+            row.get('qty'), _num(row.get('unit_price')), _num(row.get('total_price')),
+            _num(row.get('deposit_hint')), _num(row.get('cbm_final')),
+            row.get('length_cm'), row.get('width_cm'), row.get('height_cm'),
         ])
-    _style_sheet(ws, [20, 12, 16, 12, 14, 20, 12, 8, 8, 10, 10, 10, 10, 10])
+    recs.sort(key=lambda r: (_group_key_text(r[1]).upper(), _group_key_text(r[2]).upper(), _group_key_text(r[4]).upper()))
+    _append_grouped_rows_with_blanks(ws, recs, customer_idx=1, shop_idx=2)
+    _style_sheet(ws, _receipt_col_widths())
+    _format_receipt_goods_sheet(ws, header_row=1)
     out = _export_dir() / f'inventory_{today_str()}.xlsx'
     wb.save(out)
     return str(out)
@@ -120,9 +226,12 @@ def export_ledger_excel(conn: Connection) -> str:
     ws.append(['customer_id', 'name', 'aliases', 'total_deposit', 'total_freight', 'total_due', 'net_balance'])
     for row in data:
         ws.append([
-            row.get('customer_id'), row.get('name'), ' / '.join(row.get('aliases') or []), row.get('total_deposit'),
-            row['total_freight'], row['total_due'], row['net_balance'],
+            row.get('customer_id'), row.get('name'), ' / '.join(row.get('aliases') or []), _num(row.get('total_deposit')),
+            _num(row.get('total_freight')), _num(row.get('total_due')), _num(row.get('net_balance')),
         ])
+    for r in range(2, ws.max_row + 1):
+        for c in (4, 5, 6, 7):
+            ws.cell(r, c).number_format = "$#,##0"
     _style_sheet(ws, [10, 18, 24, 12, 12, 12, 12])
     out = _export_dir() / f'ledger_{today_str()}.xlsx'
     wb.save(out)
@@ -132,7 +241,8 @@ def export_ledger_excel(conn: Connection) -> str:
 def statement_lines(conn: Connection, statement_id: int) -> tuple[dict, list[dict]]:
     head = conn.execute(
         '''
-        SELECT s.id, s.statement_no, s.statement_date, s.status, c.container_no
+        SELECT s.id, s.statement_no, s.statement_date, s.status, s.container_id,
+               c.container_no, c.master_customer_id
         FROM settlement_statements s
         JOIN containers c ON c.id = s.container_id
         WHERE s.id=?
@@ -157,19 +267,43 @@ def statement_lines(conn: Connection, statement_id: int) -> tuple[dict, list[dic
 
 def export_statement_excel(conn: Connection, statement_id: int) -> str:
     head, rows = statement_lines(conn, statement_id)
+    c_head, _items, csum = container_manifest(conn, int(head.get('container_id')))
+    csum_sorted = _customer_rows_sync_like(csum, master_customer_id=int(c_head.get('master_customer_id') or 0))
     wb = Workbook()
     ws = wb.active
     ws.title = 'statement'
-    ws.append(['statement_no', 'container_no', 'statement_date', 'status'])
-    ws.append([head.get('statement_no'), head.get('container_no'), head.get('statement_date'), head.get('status')])
+    ws.append(['日期', '柜号', '结算单号', '状态', '运费'])
+    ws.append([
+        head.get('statement_date'),
+        head.get('container_no'),
+        head.get('statement_no'),
+        head.get('status'),
+        _num(c_head.get('default_price_per_m3')) * _num(c_head.get('capacity_cbm')),
+    ])
+    ws.cell(2, 5).number_format = "$#,##0"
     ws.append([])
-    ws.append(['customer', 'cbm_total', 'price_per_m3', 'freight', 'deposit_used', 'amount_due', 'balance'])
-    for r in rows:
+    ws.append(['PHONE NUMBER', 'NAME', 'CBM', 'CTN', 'FREIGHT'])
+    customer_header_row = ws.max_row
+    for r in csum_sorted:
         ws.append([
-            r['customer_name'], r['cbm_total'], r['price_per_m3'], r['freight_amount'],
-            r['deposit_used'], r['amount_due'], r['amount_balance'],
+            r.get('customer_phone') or '',
+            r.get('customer_name') or '',
+            _num(r.get('cbm_total')),
+            _num(r.get('ctns')),
+            _num(r.get('freight_amount')),
         ])
-    _style_sheet(ws, [20, 14, 14, 14, 14, 14, 14])
+    _format_customer_block_sheet(ws, header_row=customer_header_row, data_start_row=customer_header_row + 1)
+    ws.append([])
+    ws.append(['NAME', 'DEPOSIT_USED', 'AMOUNT_DUE', 'BALANCE'])
+    settle_header_row = ws.max_row
+    rows_sorted = sorted(rows, key=lambda x: _group_key_text(x.get('customer_name')).upper())
+    for r in rows_sorted:
+        ws.append([r.get('customer_name') or '', _num(r.get('deposit_used')), _num(r.get('amount_due')), _num(r.get('amount_balance'))])
+    for r in range(settle_header_row + 1, ws.max_row + 1):
+        ws.cell(r, 2).number_format = "$#,##0"
+        ws.cell(r, 3).number_format = "$#,##0"
+        ws.cell(r, 4).number_format = "$#,##0"
+    _style_sheet(ws, [14, 20, 12, 10, 12])
     out = _export_dir() / f"statement_{_sanitize_filename(head['statement_no'])}.xlsx"
     wb.save(out)
     return str(out)
@@ -177,30 +311,30 @@ def export_statement_excel(conn: Connection, statement_id: int) -> str:
 
 def export_statement_pdf(conn: Connection, statement_id: int) -> str:
     head, rows = statement_lines(conn, statement_id)
+    c_head, _items, csum = container_manifest(conn, int(head.get('container_id')))
+    csum_sorted = _customer_rows_sync_like(csum, master_customer_id=int(c_head.get('master_customer_id') or 0))
     out = _export_dir() / f"statement_{_sanitize_filename(head['statement_no'])}.pdf"
     c = _new_pdf(out)
     width, height = A4
     y = height - 40
     c.drawString(40, y, f"结算单: {head['statement_no']}  柜号: {head['container_no']}  日期: {head['statement_date']}")
     y -= 30
-    c.drawString(40, y, '客户')
-    c.drawString(180, y, '体积CBM')
-    c.drawString(260, y, '单价')
-    c.drawString(320, y, '运费')
-    c.drawString(390, y, '扣款')
-    c.drawString(460, y, '应收')
+    c.drawString(40, y, 'PHONE')
+    c.drawString(150, y, 'NAME')
+    c.drawString(300, y, 'CBM')
+    c.drawString(360, y, 'CTN')
+    c.drawString(430, y, 'FREIGHT(CNY)')
     y -= 16
-    for r in rows:
+    for r in csum_sorted:
         if y < 60:
             c.showPage()
             y = height - 40
             c.setFont('STSong-Light', 11)
-        c.drawString(40, y, str(r['customer_name'])[:20])
-        c.drawRightString(250, y, f"{float(r['cbm_total']):.3f}")
-        c.drawRightString(310, y, f"{float(r['price_per_m3']):.2f}")
-        c.drawRightString(380, y, f"{float(r['freight_amount']):.2f}")
-        c.drawRightString(450, y, f"{float(r['deposit_used']):.2f}")
-        c.drawRightString(530, y, f"{float(r['amount_due']):.2f}")
+        c.drawString(40, y, str(r.get('customer_phone') or '')[:12])
+        c.drawString(150, y, str(r.get('customer_name') or '')[:18])
+        c.drawRightString(345, y, f"{_cbm_1(r.get('cbm_total')):.1f}")
+        c.drawRightString(390, y, f"{int(r.get('ctns') or 0)}")
+        c.drawRightString(530, y, f"{int(round(_num(r.get('freight_amount'))))}")
         y -= 14
     c.save()
     return str(out)
@@ -208,23 +342,42 @@ def export_statement_pdf(conn: Connection, statement_id: int) -> str:
 
 def export_container_excel(conn: Connection, container_id: int) -> str:
     head, items, customer_summary = container_manifest(conn, container_id)
+    csum_sorted = _customer_rows_sync_like(customer_summary, master_customer_id=int(head.get('master_customer_id') or 0))
     wb = Workbook()
     ws = wb.active
     ws.title = 'container_manifest'
-    ws.append(['container_no', 'status', 'capacity_cbm', 'used_cbm', 'price_per_m3'])
-    ws.append([head.get('container_no'), head.get('status'), head.get('capacity_cbm'), head.get('used_cbm'), head.get('default_price_per_m3')])
+    ws.append(['日期', '柜号', '', '', '运费'])
+    ws.append([today_str(), head.get('container_no'), '', '', _num(head.get('default_price_per_m3')) * _num(head.get('capacity_cbm'))])
+    ws.cell(2, 5).number_format = "$#,##0"
     ws.append([])
-    ws.append(['customer', 'cbm_total', 'freight_amount'])
-    for r in customer_summary:
-        ws.append([r['customer_name'], r['cbm_total'], r['freight_amount']])
-    ws.append([])
-    ws.append(['customer', 'customer_id', 'inbound_date', 'item_no', 'item_name', 'shop_no', 'item_status', 'length_cm', 'width_cm', 'height_cm', 'cbm_at_load', 'item_freight'])
-    for r in items:
+    ws.append(['PHONE NUMBER', 'NAME', 'CBM', 'CTN', 'FREIGHT'])
+    customer_header_row = ws.max_row
+    for r in csum_sorted:
         ws.append([
-            r['customer_name'], r['customer_id'], r['inbound_date'], r['item_no'], r['item_name_cn'],
-            r['shop_no'], r['item_status'], r.get('length_cm'), r.get('width_cm'), r.get('height_cm'), r['cbm_at_load'], r['freight_amount'],
+            r.get('customer_phone') or '',
+            r.get('customer_name') or '',
+            _num(r.get('cbm_total')),
+            _num(r.get('ctns')),
+            _num(r.get('freight_amount')),
         ])
-    _style_sheet(ws, [18, 12, 12, 14, 22, 12, 10, 10, 10, 10, 12, 12])
+    _format_customer_block_sheet(ws, header_row=customer_header_row, data_start_row=customer_header_row + 1)
+    ws.append([])
+    ws.append(_receipt_goods_headers())
+    goods_header_row = ws.max_row
+    item_recs: list[list] = []
+    for r in items:
+        item_recs.append([
+            r.get('inbound_date'), r.get('customer_name'), r.get('shop_no'), '',
+            r.get('item_no'), r.get('item_name_cn'), r.get('material'),
+            r.get('carton_count'), r.get('qty'),
+            _num(r.get('unit_price')), _num(r.get('total_price')), _num(r.get('deposit_hint')),
+            _num(r.get('cbm_at_load')),
+            r.get('length_cm'), r.get('width_cm'), r.get('height_cm'),
+        ])
+    item_recs.sort(key=lambda r: (_group_key_text(r[1]).upper(), _group_key_text(r[2]).upper(), _group_key_text(r[4]).upper()))
+    _append_grouped_rows_with_blanks(ws, item_recs, customer_idx=1, shop_idx=2)
+    _style_sheet(ws, _receipt_col_widths())
+    _format_receipt_goods_sheet(ws, header_row=goods_header_row)
 
     out = _export_dir() / f"container_{_sanitize_filename(head['container_no'])}_{today_str()}.xlsx"
     wb.save(out)
@@ -232,29 +385,45 @@ def export_container_excel(conn: Connection, container_id: int) -> str:
 
 
 def export_container_pdf(conn: Connection, container_id: int) -> str:
-    head, items, _ = container_manifest(conn, container_id)
+    head, items, customer_summary = container_manifest(conn, container_id)
+    csum_sorted = _customer_rows_sync_like(customer_summary, master_customer_id=int(head.get('master_customer_id') or 0))
     out = _export_dir() / f"container_{_sanitize_filename(head['container_no'])}_{today_str()}.pdf"
     c = _new_pdf(out)
     width, height = A4
     y = height - 40
-    c.drawString(40, y, f"柜号: {head['container_no']}  状态: {head['status']}  已用/容量: {head['used_cbm']}/{head['capacity_cbm']}")
-    y -= 16
-    c.drawString(40, y, f"单价(每立方): {head['default_price_per_m3']}")
+    c.drawString(40, y, f"柜号: {head['container_no']}  状态: {head['status']}  已用/容量: {_cbm_1(head['used_cbm'])}/{_cbm_1(head['capacity_cbm'])}")
     y -= 24
-    c.drawString(40, y, '客户')
-    c.drawString(180, y, '货品')
-    c.drawString(330, y, 'CBM')
-    c.drawString(410, y, '金额')
+    c.drawString(40, y, 'PHONE')
+    c.drawString(150, y, 'NAME')
+    c.drawString(300, y, 'CBM')
+    c.drawString(360, y, 'CTN')
+    c.drawString(430, y, 'FREIGHT(CNY)')
     y -= 16
-    for r in items:
+    for r in csum_sorted:
         if y < 60:
             c.showPage()
             y = height - 40
             c.setFont('STSong-Light', 11)
-        c.drawString(40, y, str(r['customer_name'])[:20])
-        c.drawString(180, y, str(r['item_name_cn'] or r['item_no'] or '')[:24])
-        c.drawRightString(390, y, f"{float(r['cbm_at_load']):.3f}")
-        c.drawRightString(520, y, f"{float(r['freight_amount']):.2f}")
+        c.drawString(40, y, str(r.get('customer_phone') or '')[:12])
+        c.drawString(150, y, str(r.get('customer_name') or '')[:18])
+        c.drawRightString(345, y, f"{_cbm_1(r.get('cbm_total')):.1f}")
+        c.drawRightString(390, y, f"{int(r.get('ctns') or 0)}")
+        c.drawRightString(530, y, f"{int(round(_num(r.get('freight_amount'))))}")
+        y -= 14
+    y -= 10
+    c.drawString(40, y, 'ITEMS (customer/shop grouped)')
+    y -= 16
+    for r in sorted(items, key=lambda x: (_group_key_text(x.get('customer_name')).upper(), _group_key_text(x.get('shop_no')).upper(), _group_key_text(x.get('item_no')).upper())):
+        if y < 60:
+            c.showPage()
+            y = height - 40
+            c.setFont('STSong-Light', 11)
+        c.drawString(40, y, str(r.get('inbound_date') or '')[:10])
+        c.drawString(110, y, str(r.get('customer_name') or '')[:10])
+        c.drawString(185, y, str(r.get('shop_no') or '')[:9])
+        c.drawString(250, y, str(r.get('item_no') or '')[:10])
+        c.drawString(325, y, str(r.get('item_name_cn') or '')[:10])
+        c.drawRightString(390, y, f"{_cbm_1(r.get('cbm_at_load')):.1f}")
         y -= 14
     c.save()
     return str(out)
