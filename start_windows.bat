@@ -1,5 +1,11 @@
 @echo off
 setlocal
-set "SCRIPT_DIR=%~dp0"
-call "%SCRIPT_DIR%启动.bat" %*
-endlocal
+
+if not exist .venv (
+  py -m venv .venv
+)
+
+call .venv\Scripts\activate
+pip install -r requirements.txt
+python scripts\init_db.py
+python run.py
