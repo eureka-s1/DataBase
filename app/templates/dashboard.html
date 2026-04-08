@@ -160,6 +160,7 @@
     .modal-mask { position: fixed; inset: 0; background: rgba(9, 24, 40, 0.45); display: none; align-items: center; justify-content: center; z-index: 999; }
     .modal-mask.show { display: flex; }
     .modal-card { width: min(520px, 92vw); background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+    #doneModalText { white-space: pre-line; }
     .preview-box { margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #fbfdff; display: none; }
     .preview-box.show { display: block; }
     .preview-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
@@ -2776,7 +2777,7 @@
             await refreshImportBatches('', '', 50);
             setMsg(`导入完成：日期 ${formatDateDisplay(r.inbound_date_used)}，成功入库 ${r.success_rows}，失败 ${r.failed_rows}，自动新建客户 ${r.auto_created_customer_count || 0}`);
             clearImportSelection();
-            showDoneModal(`批次ID: ${r.batch_id}；入库日期: ${formatDateDisplay(r.inbound_date_used)}；成功入库: ${r.success_rows} 条；失败: ${r.failed_rows} 条；新建客户: ${r.auto_created_customer_count || 0}。`, '执行完成');
+            showDoneModal(`批次ID: ${r.batch_id}\n入库日期: ${formatDateDisplay(r.inbound_date_used)}\n成功入库: ${r.success_rows} 条\n失败: ${r.failed_rows} 条\n新建客户: ${r.auto_created_customer_count || 0}`, '执行完成');
           }
         } catch (err) { setMsg(err.message, false); }
       };
@@ -2838,13 +2839,13 @@
           byId('ioResult').textContent = JSON.stringify(r, null, 2);
           if (dryRun) {
             setMsg('历史在库导入演练完成');
-            finishRunningModal(`历史在库导入演练完成。扫描 ${r.stats?.folders_scanned || 0} 个目录，候选 ${r.stats?.rows_candidate || 0} 条。`, '执行完成');
+            finishRunningModal(`历史在库导入演练完成。\n扫描目录: ${r.stats?.folders_scanned || 0}\n候选条数: ${r.stats?.rows_candidate || 0}`, '执行完成');
           } else {
             await refreshCustomers();
             await runInboundQuery(true);
             await refreshSummary();
             setMsg('历史在库导入完成');
-            finishRunningModal(`历史在库导入完成。写入 ${r.stats?.rows_inserted || 0} 条，客户新增 ${r.stats?.customers_auto_created || 0}。`, '执行完成');
+            finishRunningModal(`历史在库导入完成。\n写入条数: ${r.stats?.rows_inserted || 0}\n新增客户: ${r.stats?.customers_auto_created || 0}`, '执行完成');
           }
         } catch (err) {
           setMsg(err.message, false);
@@ -2915,6 +2916,7 @@
           const r = await api('/exports/daily-inbound', 'POST', { inbound_date: f.get('inbound_date') });
           byId('ioResult').textContent = JSON.stringify(r, null, 2);
           setMsg('日入库导出完成');
+          showDoneModal(`日入库导出完成。\n文件路径: ${r.path || ''}`, '执行完成');
         } catch (err) { setMsg(err.message, false); }
       };
 
@@ -2931,6 +2933,7 @@
           const r = await api(`/exports/statement/by-container/${containerId}`, 'POST', { format: f.get('format') });
           byId('ioResult').textContent = JSON.stringify(r, null, 2);
           setMsg('结算单导出完成');
+          showDoneModal(`结算单导出完成。\n柜次ID: ${containerId}\n文件路径: ${r.path || ''}`, '执行完成');
         } catch (err) { setMsg(err.message, false); }
       };
       byId('formExportContainer').onsubmit = async (e) => {
@@ -2946,6 +2949,7 @@
           const r = await api(`/exports/container/${containerId}`, 'POST', { format: f.get('format') });
           byId('ioResult').textContent = JSON.stringify(r, null, 2);
           setMsg('柜单导出完成');
+          showDoneModal(`柜单导出完成。\n柜次ID: ${containerId}\n文件路径: ${r.path || ''}`, '执行完成');
         } catch (err) { setMsg(err.message, false); }
       };
 
@@ -2954,6 +2958,7 @@
           const r = await api('/exports/inventory', 'POST', {});
           byId('ioResult').textContent = JSON.stringify(r, null, 2);
           setMsg('库存导出完成');
+          showDoneModal(`库存导出完成。\n文件路径: ${r.path || ''}`, '执行完成');
         } catch (err) { setMsg(err.message, false); }
       };
       byId('btnExportLedger').onclick = async () => {
@@ -2961,6 +2966,7 @@
           const r = await api('/exports/ledger', 'POST', {});
           byId('ioResult').textContent = JSON.stringify(r, null, 2);
           setMsg('总账导出完成');
+          showDoneModal(`总账导出完成。\n文件路径: ${r.path || ''}`, '执行完成');
         } catch (err) { setMsg(err.message, false); }
       };
       byId('btnBackup').onclick = async () => {
