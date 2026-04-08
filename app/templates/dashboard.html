@@ -2344,8 +2344,9 @@
           const usage = await api(`/containers/${encodeURIComponent(state.plannerContainerId)}/usage`);
           const used = Number(usage.used_cbm || 0);
           const cap = Number(usage.capacity_cbm || 0);
-          if (used + addCbm > cap + 1e-9) {
-            const msg = `加入失败：将超出柜容积。\n当前占用: ${used}\n将新增: ${addCbm.toFixed(6)}\n柜容量: ${cap}`;
+          const tolerantCap = cap + Math.max(cap * 0.01, 0.3);
+          if (used + addCbm > tolerantCap + 1e-9) {
+            const msg = `加入失败：将超出柜容积（含轻微超装容差）。\n当前占用: ${used}\n将新增: ${addCbm.toFixed(6)}\n柜容量: ${cap}\n允许上限: ${tolerantCap.toFixed(6)}`;
             setMsg('加入失败：超出货柜容量限制', false);
             showDoneModal(msg, '装柜失败');
             return;

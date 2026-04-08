@@ -5,6 +5,12 @@ from sqlite3 import Connection
 from .common import now_ts, to_float, to_int
 
 
+def _capacity_with_tolerance(capacity_cbm: float) -> float:
+    cap = to_float(capacity_cbm, 0.0)
+    # Allow slight overfill: max(1% of capacity, 0.3 cbm).
+    return cap + max(cap * 0.01, 0.3)
+
+
 def _ensure_master_customer_valid(conn: Connection, container_id: int) -> None:
     row = conn.execute(
         'SELECT master_customer_id FROM containers WHERE id=?',
@@ -153,7 +159,7 @@ def add_item_to_container(conn: Connection, container_id: int, inbound_item_id: 
 
     cbm = to_float(cbm_override_at_load, to_float(i['cbm_final']))
     usage = container_usage(conn, container_id)
-    if usage['used_cbm'] + cbm > usage['capacity_cbm'] + 1e-9:
+    if usage['used_cbm'] + cbm > _capacity_with_tolerance(usage['capacity_cbm']) + 1e-9:
         raise ValueError('container capacity exceeded')
 
     ts = now_ts()
@@ -378,7 +384,7 @@ def update_item_cbm_at_load(conn: Connection, container_id: int, inbound_item_id
         (container_id, inbound_item_id),
     ).fetchone()
     total_after = float(used_other['x']) + new_cbm
-    if total_after > float(c['capacity_cbm']) + 1e-9:
+    if total_after > _capacity_with_tolerance(float(c['capacity_cbm'])) + 1e-9:
         raise ValueError('container capacity exceeded')
 
     conn.execute(
