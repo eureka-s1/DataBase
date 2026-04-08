@@ -171,7 +171,7 @@ if not exist "%PROJECT_DIR%" mkdir "%PROJECT_DIR%"
 echo [INFO] Copying files (preserve local data and runtime folders)...
 robocopy "%SRC_DIR%" "%PROJECT_DIR%" /E /R:1 /W:1 /NFL /NDL /NP /NJH /NJS ^
   /XD ".git" ".venv" ".canyu_data" "backups" "exports" "dist" "__pycache__" ^
-  /XF ".env" "shipping.db" "update_from_github.log" >>"%LOG_FILE%" 2>&1
+  /XF ".env" "shipping.db" "update_from_github.log" "更新.log" >>"%LOG_FILE%" 2>&1
 
 set "RC=%ERRORLEVEL%"
 if %RC% GEQ 8 exit /b 8
