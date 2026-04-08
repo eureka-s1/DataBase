@@ -2333,6 +2333,27 @@
           setMsg(state.plannerViewMode === 'summary' ? '请先勾选要加入柜次的客户' : '请先勾选要加入柜次的货物', false);
           return;
         }
+        const cbmById = new Map(
+          state.plannerAvailable.map(x => [
+            Number(x.id),
+            Number(x.cbm_final ?? x.cbm_override ?? x.cbm_calculated ?? 0),
+          ])
+        );
+        const addCbm = ids.reduce((sum, id) => sum + (cbmById.get(Number(id)) || 0), 0);
+        try {
+          const usage = await api(`/containers/${encodeURIComponent(state.plannerContainerId)}/usage`);
+          const used = Number(usage.used_cbm || 0);
+          const cap = Number(usage.capacity_cbm || 0);
+          if (used + addCbm > cap + 1e-9) {
+            const msg = `加入失败：将超出柜容积。\n当前占用: ${used}\n将新增: ${addCbm.toFixed(6)}\n柜容量: ${cap}`;
+            setMsg('加入失败：超出货柜容量限制', false);
+            showDoneModal(msg, '装柜失败');
+            return;
+          }
+        } catch (err) {
+          setMsg(err.message || '容量检查失败', false);
+          return;
+        }
         let ok = 0;
         const errs = [];
         for (const id of ids) {
@@ -2344,7 +2365,13 @@
           }
         }
         await refreshAllViews();
-        setMsg(errs.length ? `加入完成 ${ok}/${ids.length}，失败 ${errs.length} 条` : `已加入 ${ok} 条货物`);
+        if (errs.length) {
+          const detail = errs.slice(0, 8).join('\n');
+          setMsg(`加入完成 ${ok}/${ids.length}，失败 ${errs.length} 条`, false);
+          showDoneModal(`加入失败明细（最多8条）：\n${detail}`, '装柜异常');
+        } else {
+          setMsg(`已加入 ${ok} 条货物`);
+        }
       };
       byId('btnPlannerConfirm').onclick = async () => {
         if (!state.plannerContainerId) {
