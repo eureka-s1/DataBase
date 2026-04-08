@@ -489,6 +489,7 @@
             <button class="btn" id="btnPlannerRefresh" type="submit">刷新货物池</button>
           </form>
           <div id="plannerUsage" class="usage-kpi">当前占用：0 / 68 CBM</div>
+          <div id="plannerUsagePreview" class="small" style="margin-top:6px;">预览填充：请选择货物后查看</div>
           <div id="plannerMasterCustomer" class="usage-kpi">当前柜主：未选择</div>
           <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; margin-top:6px;">
             <label style="margin:0;">柜主（输入客户名）<input id="plannerMasterCustomerName" type="text" placeholder="输入客户名后设置"></label>
@@ -944,6 +945,8 @@
       plannerKeyword: '',
       plannerHideAllocated: true,
       plannerViewMode: 'items',
+      plannerUsedCbm: 0,
+      plannerCapacityCbm: 68,
       plannerAvailableFiltered: [],
       plannerAvailableSummary: [],
       plannerAvailablePage: 1,
@@ -1612,6 +1615,7 @@
       });
       const headers = ['选择', '客户', '品名', 'CTNs', 'CBM'].concat(showStatusCol ? ['状态'] : []).concat(['操作']);
       renderTable(byId('tablePlannerAvailable'), headers, trs);
+      refreshPlannerFillPreview();
     }
 
     function renderPlannerSelected() {
@@ -1640,14 +1644,60 @@
       byId('plannerSelectedPageInfo').textContent = `共 ${allRows.length} 条，当前第 ${state.plannerSelectedPage}/${totalPages} 页`;
     }
 
+    function collectPlannerPickedIds() {
+      if (state.plannerViewMode === 'summary') {
+        const checks = Array.from(document.querySelectorAll('#tablePlannerAvailable .plannerPickCustomer:checked'));
+        const names = checks.map(x => decodeURIComponent(String(x.value || ''))).filter(Boolean);
+        const idSet = new Set();
+        state.plannerAvailableSummary
+          .filter(x => names.includes(String(x.customer_name || '')))
+          .forEach(x => (x.stock_item_ids || []).forEach(id => idSet.add(Number(id))));
+        return Array.from(idSet).filter(x => Number.isFinite(x) && x > 0);
+      }
+      const checks = Array.from(document.querySelectorAll('#tablePlannerAvailable .plannerPick:checked'));
+      return checks.map(x => Number(x.value)).filter(x => x > 0);
+    }
+
+    function refreshPlannerFillPreview() {
+      const el = byId('plannerUsagePreview');
+      if (!el) return;
+      if (!state.plannerContainerId) {
+        el.textContent = '预览填充：请先选择柜次';
+        return;
+      }
+      const ids = collectPlannerPickedIds();
+      if (ids.length === 0) {
+        el.textContent = '预览填充：请选择货物后查看';
+        return;
+      }
+      const cbmById = new Map(
+        state.plannerAvailable.map(x => [
+          Number(x.id),
+          Number(x.cbm_final ?? x.cbm_override ?? x.cbm_calculated ?? 0),
+        ])
+      );
+      const addCbm = ids.reduce((sum, id) => sum + (cbmById.get(Number(id)) || 0), 0);
+      const used = Number(state.plannerUsedCbm || 0);
+      const cap = Number(state.plannerCapacityCbm || 0);
+      const projected = used + addCbm;
+      const pct = cap > 0 ? (projected / cap) * 100 : 0;
+      el.textContent = `预览填充：当前 ${formatCbm8(used)} + 待加入 ${formatCbm8(addCbm)} = 预计 ${formatCbm8(projected)} / ${formatCbm8(cap)} CBM（${pct.toFixed(1)}%）`;
+    }
+
     async function refreshPlannerUsage() {
       if (!state.plannerContainerId) {
         byId('plannerUsage').textContent = '当前占用：0 / 68 CBM';
+        state.plannerUsedCbm = 0;
+        state.plannerCapacityCbm = 68;
+        refreshPlannerFillPreview();
         renderPlannerMasterCustomer();
         return;
       }
       const usage = await api(`/containers/${encodeURIComponent(state.plannerContainerId)}/usage`);
+      state.plannerUsedCbm = Number(usage.used_cbm || 0);
+      state.plannerCapacityCbm = Number(usage.capacity_cbm || 0);
       byId('plannerUsage').textContent = `当前占用：${usage.used_cbm} / ${usage.capacity_cbm} CBM（剩余 ${usage.remain_cbm}）`;
+      refreshPlannerFillPreview();
       renderPlannerMasterCustomer();
     }
 
@@ -1662,6 +1712,7 @@
       renderPlannerAvailable();
       renderPlannerSelected();
       await refreshPlannerUsage();
+      refreshPlannerFillPreview();
     }
 
     function renderLedger(rows = null) {
@@ -2315,26 +2366,23 @@
         }
         const shouldSelect = checks.some(x => !x.checked);
         checks.forEach(x => { x.checked = shouldSelect; });
+        refreshPlannerFillPreview();
         setMsg(shouldSelect ? `已全选当前页 ${checks.length} 条` : '已取消全选当前页');
       };
+      byId('tablePlannerAvailable').addEventListener('change', (e) => {
+        const t = e.target;
+        if (!(t instanceof HTMLInputElement)) return;
+        if (t.classList.contains('plannerPick') || t.classList.contains('plannerPickCustomer')) {
+          refreshPlannerFillPreview();
+        }
+      });
       byId('btnPlannerAddSelected').onclick = async () => {
         if (!state.plannerContainerId) {
           setMsg('请先选择柜次', false);
           return;
         }
         let ids = [];
-        if (state.plannerViewMode === 'summary') {
-          const checks = Array.from(document.querySelectorAll('#tablePlannerAvailable .plannerPickCustomer:checked'));
-          const names = checks.map(x => decodeURIComponent(String(x.value || ''))).filter(Boolean);
-          const idSet = new Set();
-          state.plannerAvailableSummary
-            .filter(x => names.includes(String(x.customer_name || '')))
-            .forEach(x => (x.stock_item_ids || []).forEach(id => idSet.add(Number(id))));
-          ids = Array.from(idSet).filter(x => Number.isFinite(x) && x > 0);
-        } else {
-          const checks = Array.from(document.querySelectorAll('#tablePlannerAvailable .plannerPick:checked'));
-          ids = checks.map(x => Number(x.value)).filter(x => x > 0);
-        }
+        ids = collectPlannerPickedIds();
         if (ids.length === 0) {
           setMsg(state.plannerViewMode === 'summary' ? '请先勾选要加入柜次的客户' : '请先勾选要加入柜次的货物', false);
           return;
