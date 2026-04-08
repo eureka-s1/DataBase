@@ -151,6 +151,55 @@ def _find_customer_dir_from_candidates(work_dir: Path, name_candidates: list[str
     return None
 
 
+def _find_customer_dirs_from_candidates(work_dir: Path, name_candidates: list[str]) -> list[Path]:
+    found: list[Path] = []
+    seen: set[str] = set()
+    wanted = {_normalize_customer_key(x) for x in name_candidates if str(x or "").strip()}
+    if not wanted:
+        return []
+    for name in name_candidates:
+        exact = work_dir / str(name or "").strip()
+        if exact.exists() and exact.is_dir():
+            rp = str(exact.resolve())
+            if rp not in seen:
+                seen.add(rp)
+                found.append(exact)
+    for p in work_dir.iterdir():
+        if not p.is_dir():
+            continue
+        if _normalize_customer_key(p.name) in wanted:
+            rp = str(p.resolve())
+            if rp not in seen:
+                seen.add(rp)
+                found.append(p)
+    return found
+
+
+def _precheck_customer_dirs(work_dir: Path, profiles: list[tuple[str, list[str]]]) -> tuple[dict[str, Path], list[str]]:
+    """
+    Validate all customer->folder mappings before write.
+    Returns (resolved_map, errors). Any error means caller should stop the whole sync.
+    """
+    resolved: dict[str, Path] = {}
+    errors: list[str] = []
+    for label, candidates in profiles:
+        key = _normalize_customer_key(label)
+        if key in resolved:
+            continue
+        matches = _find_customer_dirs_from_candidates(work_dir, candidates)
+        if not matches:
+            expect = label or (candidates[0] if candidates else "unknown")
+            errors.append(f"{expect}: customer folder not found")
+            continue
+        if len(matches) > 1:
+            paths = ", ".join(str(p) for p in matches[:5])
+            expect = label or (candidates[0] if candidates else "unknown")
+            errors.append(f"{expect}: multiple customer folders matched -> {paths}")
+            continue
+        resolved[key] = matches[0]
+    return resolved, errors
+
+
 def _pick_receipt_xlsx(customer_dir: Path, customer_name: str) -> Path:
     all_excel = [
         p for p in customer_dir.rglob("*")
@@ -601,13 +650,31 @@ def sync_receipts_by_batch(conn: Connection, batch_id: int, work_dir: Path) -> d
         grouped.items(),
         key=lambda kv: str(kv[1][0]["customer_name"] or "").strip().upper(),
     )
+    profiles: list[tuple[str, list[str]]] = []
+    id_to_profile: dict[int, tuple[str, list[str]]] = {}
     for customer_id, items in grouped_items:
         fallback_name = str(items[0]["customer_name"] or "").strip()
         customer_name, name_candidates = _resolve_customer_profile(conn, customer_id, fallback_name=fallback_name)
-        cdir = _find_customer_dir_from_candidates(work_dir, name_candidates)
+        label = customer_name or fallback_name or f"customer_id={customer_id}"
+        profiles.append((label, name_candidates))
+        id_to_profile[customer_id] = (label, name_candidates)
+    resolved_dirs, pre_errors = _precheck_customer_dirs(work_dir, profiles)
+    if pre_errors:
+        return {
+            "batch_id": batch_id,
+            "customers": len(grouped),
+            "rows": 0,
+            "files_updated": 0,
+            "updated_files": [],
+            "errors": pre_errors,
+        }
+
+    for customer_id, items in grouped_items:
+        fallback_name = str(items[0]["customer_name"] or "").strip()
+        customer_name, _name_candidates = id_to_profile.get(customer_id, (fallback_name, [fallback_name]))
+        cdir = resolved_dirs.get(_normalize_customer_key(customer_name))
         if not cdir:
-            expect = customer_name or fallback_name or f"customer_id={customer_id}"
-            err.append(f"{expect}: customer folder not found, please create folder '{expect}'")
+            err.append(f"{customer_name}: customer folder precheck failed")
             continue
         try:
             xlsx = _pick_receipt_xlsx(cdir, customer_name)
@@ -749,14 +816,32 @@ def sync_outbound_container_to_customers(conn: Connection, container_id: int, wo
     unit_price = to_float(c["default_price_per_m3"], 0.0)
     fx_cny = _FX_CNY
 
+    profiles: list[tuple[str, list[str]]] = []
+    id_to_profile: dict[int, tuple[str, list[str]]] = {}
     for r in rows:
         customer_id = int(r["customer_id"] or 0)
         fallback_name = str(r["customer_name"] or "").strip()
         name, name_candidates = _resolve_customer_profile(conn, customer_id, fallback_name=fallback_name)
-        cdir = _find_customer_dir_from_candidates(work_dir, name_candidates)
+        label = name or fallback_name or f"customer_id={customer_id}"
+        profiles.append((label, name_candidates))
+        id_to_profile[customer_id] = (label, name_candidates)
+    resolved_dirs, pre_errors = _precheck_customer_dirs(work_dir, profiles)
+    if pre_errors:
+        return {
+            "container_id": container_id,
+            "customers": len(rows),
+            "files_updated": 0,
+            "updated_files": [],
+            "errors": pre_errors,
+        }
+
+    for r in rows:
+        customer_id = int(r["customer_id"] or 0)
+        fallback_name = str(r["customer_name"] or "").strip()
+        name, _name_candidates = id_to_profile.get(customer_id, (fallback_name, [fallback_name]))
+        cdir = resolved_dirs.get(_normalize_customer_key(name))
         if not cdir:
-            expect = name or fallback_name or f"customer_id={customer_id}"
-            err.append(f"{expect}: customer folder not found, please create folder '{expect}'")
+            err.append(f"{name}: customer folder precheck failed")
             continue
         try:
             xlsx = _pick_receipt_xlsx(cdir, name)
