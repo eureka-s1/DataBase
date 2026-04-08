@@ -411,17 +411,28 @@ def revoke_container(conn: Connection, container_id: int) -> None:
         raise ValueError('container not found')
     if c['status'] != 'CONFIRMED':
         raise ValueError('container status must be CONFIRMED')
+    st = conn.execute(
+        """
+        SELECT id, status
+        FROM settlement_statements
+        WHERE container_id=? AND status IN ('DRAFT', 'POSTED')
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (container_id,),
+    ).fetchone()
+    if st:
+        raise ValueError('container has settlement statement, revoke settlement first')
 
     ts = now_ts()
     conn.execute(
-        "UPDATE containers SET status='REVOKED', revoked_at=?, updated_at=? WHERE id=?",
-        (ts, ts, container_id),
-    )
-    conn.execute(
-        "UPDATE inbound_items SET status='IN_STOCK', container_id=NULL, updated_at=? WHERE container_id=?",
+        "UPDATE containers SET status='DRAFT', confirmed_at=NULL, revoked_at=NULL, updated_at=? WHERE id=?",
         (ts, container_id),
     )
-    conn.execute('DELETE FROM container_items WHERE container_id=?', (container_id,))
+    conn.execute(
+        "UPDATE inbound_items SET status='ALLOCATED', updated_at=? WHERE container_id=?",
+        (ts, container_id),
+    )
     _ensure_master_customer_valid(conn, container_id)
 
 

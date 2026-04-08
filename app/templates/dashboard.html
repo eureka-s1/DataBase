@@ -2368,8 +2368,8 @@
         try {
           await api(`/containers/${state.plannerContainerId}/revoke`, 'POST', {});
           await refreshAllViews();
-          setMsg('柜次已撤回，货物状态已恢复在库');
-          showDoneModal(`柜次 ${state.plannerContainerId} 已撤回，货物恢复在库。`, '确认成功');
+          setMsg('柜次已撤回到 DRAFT，货物状态已恢复为 ALLOCATED');
+          showDoneModal(`柜次 ${state.plannerContainerId} 已撤回到 DRAFT，货物保持在柜内待编辑。`, '确认成功');
         } catch (err) { setMsg(err.message, false); }
       };
       byId('tablePlannerSelected').onclick = async (e) => {
