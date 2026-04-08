@@ -3,6 +3,7 @@ from __future__ import annotations
 from functools import wraps
 from pathlib import Path
 from uuid import uuid4
+from datetime import datetime
 import argparse
 
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
@@ -29,6 +30,7 @@ from .services.containers import (
 from .services.customers import (
     create_customer,
     find_customer_id_by_name,
+    get_or_create_customer_id,
     list_customers,
     merge_customers,
     resolve_customer_id,
@@ -712,6 +714,64 @@ def create_app() -> Flask:
                 dry_run=bool(payload.get('dry_run', False)),
             )
         return result
+
+    @app.route('/import/inbound/manual-item', methods=['POST'])
+    @login_required
+    def import_manual_single_item_api():
+        payload = request.get_json(force=True) or {}
+        customer_name = str(payload.get('customer_name') or '').strip()
+        if not customer_name:
+            return {'error': 'customer_name is required'}, 400
+        item_name = str(payload.get('item_name_cn') or '').strip()
+        if not item_name:
+            return {'error': 'item_name_cn is required'}, 400
+
+        with db_session() as conn:
+            customer_id, customer_created = get_or_create_customer_id(conn, customer_name)
+            wh = conn.execute("SELECT id FROM warehouses ORDER BY id LIMIT 1").fetchone()
+            if not wh:
+                return {'error': 'warehouse not found'}, 400
+            warehouse_id = int(wh['id'])
+
+            inbound_no = str(payload.get('inbound_no') or '').strip()
+            if not inbound_no:
+                inbound_no = f"MAN-{datetime.now().strftime('%Y%m%d')}-{uuid4().hex[:10].upper()}"
+            while conn.execute("SELECT 1 FROM inbound_items WHERE inbound_no=? LIMIT 1", (inbound_no,)).fetchone():
+                inbound_no = f"MAN-{datetime.now().strftime('%Y%m%d')}-{uuid4().hex[:10].upper()}"
+
+            inbound_date = str(payload.get('inbound_date') or '').strip() or datetime.now().strftime('%Y-%m-%d')
+
+            item_payload = {
+                'inbound_no': inbound_no,
+                'import_batch_id': None,
+                'customer_id': customer_id,
+                'warehouse_id': warehouse_id,
+                'inbound_date': inbound_date,
+                'shop_no': payload.get('shop_no'),
+                'position_or_tel': payload.get('position_or_tel'),
+                'item_no': payload.get('item_no'),
+                'item_name_cn': item_name,
+                'material': payload.get('material'),
+                'carton_count': payload.get('carton_count'),
+                'qty': payload.get('qty'),
+                'unit_price': payload.get('unit_price'),
+                'total_price': payload.get('total_price'),
+                'deposit_hint': payload.get('deposit_hint'),
+                'length_cm': payload.get('length_cm'),
+                'width_cm': payload.get('width_cm'),
+                'height_cm': payload.get('height_cm'),
+                'cbm_calculated': payload.get('cbm_calculated'),
+                'cbm_override': payload.get('cbm_override'),
+                'status': 'IN_STOCK',
+                'remark': payload.get('remark') or 'MANUAL_SINGLE_IMPORT',
+            }
+            item_id = create_inbound_item(conn, item_payload)
+        return {
+            'id': int(item_id),
+            'customer_id': int(customer_id),
+            'customer_auto_created': bool(customer_created),
+            'inbound_no': inbound_no,
+        }, 201
 
     @app.route('/import/historical-in-stock/execute', methods=['POST'])
     @login_required
