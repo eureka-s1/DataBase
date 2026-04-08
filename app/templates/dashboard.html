@@ -315,7 +315,6 @@
           <h3>手动修改在库商品</h3>
           <form id="formInboundEdit" class="inline">
             <label>货物ID<input name="item_id" required></label>
-            <label>客户ID<input name="customer_id" placeholder="可空"></label>
             <label>客户名<input name="customer_name" placeholder="可空，自动解析"></label>
             <label>入库日期<input type="text" class="date-iso" name="inbound_date" placeholder="YYYY-MM-DD"></label>
             <label>SHOP NO<input name="shop_no"></label>
@@ -2437,7 +2436,6 @@
           if (!row) return;
           const form = byId('formInboundEdit');
           form.item_id.value = row.id ?? '';
-          form.customer_id.value = row.customer_id ?? '';
           form.customer_name.value = row.customer_name || '';
           form.inbound_date.value = formatDateInputValue(row.inbound_date);
           form.shop_no.value = row.shop_no || '';
@@ -2482,7 +2480,6 @@
           return;
         }
         const payload = {};
-        const customerIdRaw = String(f.get('customer_id') || '').trim();
         const customerNameRaw = String(f.get('customer_name') || '').trim();
         const put = (key) => {
           const v = String(f.get(key) || '').trim();
@@ -2509,9 +2506,7 @@
         putNum('cbm_override');
         put('status');
         try {
-          if (customerIdRaw) {
-            payload.customer_id = Number(customerIdRaw);
-          } else if (customerNameRaw) {
+          if (customerNameRaw) {
             const resolved = await api(`/customer-resolve?name=${encodeURIComponent(customerNameRaw)}`);
             if (!resolved || !resolved.matched) {
               setMsg('未找到该客户名，请先创建客户或别名', false);
