@@ -792,6 +792,62 @@ def create_app() -> Flask:
         payload = request.get_json(force=True) or {}
         return pick_work_dir(payload.get('initial_dir'))
 
+    @app.route('/settings/clear-db', methods=['POST'])
+    @login_required
+    def settings_clear_db_api():
+        if str(session.get('role') or '') != 'admin':
+            return {'error': 'admin required'}, 403
+        payload = request.get_json(force=True) or {}
+        admin_password = str(payload.get('admin_password') or '').strip()
+        if not admin_password:
+            return {'error': 'admin_password is required'}, 400
+
+        with db_session() as conn:
+            # Require current admin account password confirmation.
+            user = authenticate(conn, str(session.get('username') or ''), admin_password)
+            if not user or str(user.get('role') or '') != 'admin':
+                return {'error': '管理员密码错误'}, 400
+
+            tables = [
+                'audit_logs',
+                'payment_allocations',
+                'settlement_lines',
+                'settlement_statements',
+                'payment_transactions',
+                'container_items',
+                'inbound_import_rows',
+                'inbound_items',
+                'import_batches',
+                'customer_price_rules',
+                'customer_aliases',
+                'customers',
+                'containers',
+                'export_jobs',
+                'backup_jobs',
+            ]
+            conn.execute('PRAGMA foreign_keys = OFF')
+            try:
+                for t in tables:
+                    conn.execute(f'DELETE FROM {t}')
+                seq_exists = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sqlite_sequence' LIMIT 1"
+                ).fetchone()
+                if seq_exists:
+                    conn.execute(
+                        "DELETE FROM sqlite_sequence WHERE name IN (" + ",".join("?" for _ in tables) + ")",
+                        tables,
+                    )
+                # Keep at least one warehouse for subsequent inbound writes.
+                conn.execute('DELETE FROM warehouses')
+                conn.execute(
+                    "INSERT INTO warehouses(name, location, is_active) VALUES (?, ?, 1)",
+                    ("Main Warehouse", "Default"),
+                )
+            finally:
+                conn.execute('PRAGMA foreign_keys = ON')
+
+        return {'ok': True, 'message': 'database business data cleared'}
+
     @app.route('/sync/receipts/batches', methods=['GET'])
     @login_required
     def sync_receipt_batches_api():

@@ -869,6 +869,14 @@
             <button class="btn primary" type="submit">保存新密码</button>
           </form>
         </div>
+        <div class="card">
+          <h3>数据库维护</h3>
+          <div class="small">危险操作：清空业务数据（客户、货物、柜次、结算、导入记录等），仅保留用户账号与基础配置。</div>
+          <form id="formClearDb" class="inline" style="margin-top:8px;">
+            <label>管理员密码<input name="admin_password" type="password" required></label>
+            <button class="btn primary" type="submit">清空数据库</button>
+          </form>
+        </div>
       </section>
     </main>
   </div>
@@ -1916,6 +1924,7 @@
       makeSubnav('panel-settings', [
         { label: '工作目录', cards: uniq([cardOf('formWorkDir')]) },
         { label: '账户设置', cards: uniq([cardOf('formChangePwd')]) },
+        { label: '数据库维护', cards: uniq([cardOf('formClearDb')]) },
       ]);
     }
 
@@ -3062,6 +3071,31 @@
           e.target.reset();
           setMsg('密码修改成功');
         } catch (err) { setMsg(err.message, false); }
+      };
+      byId('formClearDb').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        const pwd = String(f.get('admin_password') || '').trim();
+        if (!pwd) {
+          setMsg('请输入管理员密码', false);
+          return;
+        }
+        if (!confirm('确认清空数据库业务数据吗？此操作不可撤销。')) return;
+        try {
+          showRunningModal('正在清空数据库，请稍候...', '正在执行');
+          const r = await api('/settings/clear-db', 'POST', { admin_password: pwd });
+          byId('ioResult').textContent = JSON.stringify(r, null, 2);
+          e.target.reset();
+          await refreshAllViews();
+          await refreshImportBatches('', '', 20).catch(() => {});
+          await refreshSyncReceipts(100).catch(() => {});
+          await refreshSyncOutbound(300).catch(() => {});
+          finishRunningModal('数据库已清空（业务数据）。', '执行完成');
+          setMsg('数据库清空完成');
+        } catch (err) {
+          finishRunningModal(`数据库清空失败：${err.message}`, '执行失败');
+          setMsg(err.message, false);
+        }
       };
       byId('formWorkDir').onsubmit = async (e) => {
         e.preventDefault();

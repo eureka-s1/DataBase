@@ -44,6 +44,22 @@ HEADER_MAP = {
 }
 
 
+def _to_float_cell(value, default: float = 0.0) -> float:
+    s = str(value or '').strip().replace(',', '')
+    if not s:
+        return default
+    try:
+        return float(s)
+    except Exception:
+        m = re.search(r'-?\d+(?:\.\d+)?', s)
+        if not m:
+            return default
+        try:
+            return float(m.group(0))
+        except Exception:
+            return default
+
+
 def _ensure_receipt_file(path: Path) -> None:
     if '收货清单' not in path.name:
         raise ValueError('仅支持导入文件名包含“收货清单”的入库文件')
@@ -234,16 +250,29 @@ def _fill_dimensions_from_cbm_suffix(row: list, mapping: dict[int, str], item: d
     cbm_col = next((idx for idx, field in mapping.items() if field == 'cbm_calculated'), None)
     if cbm_col is None:
         return
-    if to_float(item.get('length_cm')) > 0 and to_float(item.get('width_cm')) > 0 and to_float(item.get('height_cm')) > 0:
-        return
     if cbm_col + 3 >= len(row):
         return
-    if to_float(item.get('length_cm')) <= 0:
-        item['length_cm'] = to_float(row[cbm_col + 1])
-    if to_float(item.get('width_cm')) <= 0:
-        item['width_cm'] = to_float(row[cbm_col + 2])
-    if to_float(item.get('height_cm')) <= 0:
-        item['height_cm'] = to_float(row[cbm_col + 3])
+    # Priority rule:
+    # dimensions are primarily read from the three cells right after CBM.
+    # if those cells are empty/invalid, fallback to already parsed explicit fields.
+    l2 = _to_float_cell(row[cbm_col + 1])
+    w2 = _to_float_cell(row[cbm_col + 2])
+    h2 = _to_float_cell(row[cbm_col + 3])
+
+    if l2 > 0:
+        item['length_cm'] = l2
+    elif to_float(item.get('length_cm')) <= 0:
+        item['length_cm'] = to_float(item.get('length_cm'))
+
+    if w2 > 0:
+        item['width_cm'] = w2
+    elif to_float(item.get('width_cm')) <= 0:
+        item['width_cm'] = to_float(item.get('width_cm'))
+
+    if h2 > 0:
+        item['height_cm'] = h2
+    elif to_float(item.get('height_cm')) <= 0:
+        item['height_cm'] = to_float(item.get('height_cm'))
 
 
 def _parse_headerless_excel(path: Path, sheet_name: str, rows: list[list]) -> dict | None:
@@ -264,8 +293,8 @@ def _parse_headerless_excel(path: Path, sheet_name: str, rows: list[list]) -> di
         item = None
 
         if len(tokens) >= 8 and tokens[3]:
-            cbm_a = to_float(tokens[7]) if len(tokens) > 7 else 0.0
-            cbm_a_alt = to_float(tokens[6]) if len(tokens) > 6 else 0.0
+            cbm_a = _to_float_cell(tokens[7]) if len(tokens) > 7 else 0.0
+            cbm_a_alt = _to_float_cell(tokens[6]) if len(tokens) > 6 else 0.0
             use_alt = cbm_a <= 0 and cbm_a_alt > 0
             cbm_used = cbm_a_alt if use_alt else cbm_a
             if cbm_used > 0:
@@ -288,16 +317,16 @@ def _parse_headerless_excel(path: Path, sheet_name: str, rows: list[list]) -> di
                     'carton_count': to_int(tokens[5]) if len(tokens) > 5 else 0,
                     'qty': to_int(tokens[6]) if (len(tokens) > 6 and not use_alt) else 0,
                     'cbm_calculated': cbm_used,
-                    'length_cm': to_float(tokens[7]) if use_alt and len(tokens) > 7 else (to_float(tokens[8]) if len(tokens) > 8 else 0.0),
-                    'width_cm': to_float(tokens[8]) if use_alt and len(tokens) > 8 else (to_float(tokens[9]) if len(tokens) > 9 else 0.0),
-                    'height_cm': to_float(tokens[9]) if use_alt and len(tokens) > 9 else (to_float(tokens[10]) if len(tokens) > 10 else 0.0),
+                    'length_cm': _to_float_cell(tokens[7]) if use_alt and len(tokens) > 7 else (_to_float_cell(tokens[8]) if len(tokens) > 8 else 0.0),
+                    'width_cm': _to_float_cell(tokens[8]) if use_alt and len(tokens) > 8 else (_to_float_cell(tokens[9]) if len(tokens) > 9 else 0.0),
+                    'height_cm': _to_float_cell(tokens[9]) if use_alt and len(tokens) > 9 else (_to_float_cell(tokens[10]) if len(tokens) > 10 else 0.0),
                     'row_no': i,
                     'source_sheet': sheet_name,
                     'raw_row': raw_map,
                 }
 
         if item is None and len(tokens) >= 5 and tokens[0]:
-            cbm_b = to_float(tokens[4]) if len(tokens) > 4 else 0.0
+            cbm_b = _to_float_cell(tokens[4]) if len(tokens) > 4 else 0.0
             if cbm_b > 0:
                 item = {
                     'customer_name': last_customer_name or fallback_customer,
@@ -306,9 +335,9 @@ def _parse_headerless_excel(path: Path, sheet_name: str, rows: list[list]) -> di
                     'carton_count': to_int(tokens[2]) if len(tokens) > 2 else 0,
                     'qty': to_int(tokens[3]) if len(tokens) > 3 else 0,
                     'cbm_calculated': cbm_b,
-                    'length_cm': to_float(tokens[5]) if len(tokens) > 5 else 0.0,
-                    'width_cm': to_float(tokens[6]) if len(tokens) > 6 else 0.0,
-                    'height_cm': to_float(tokens[7]) if len(tokens) > 7 else 0.0,
+                    'length_cm': _to_float_cell(tokens[5]) if len(tokens) > 5 else 0.0,
+                    'width_cm': _to_float_cell(tokens[6]) if len(tokens) > 6 else 0.0,
+                    'height_cm': _to_float_cell(tokens[7]) if len(tokens) > 7 else 0.0,
                     'row_no': i,
                     'source_sheet': sheet_name,
                     'raw_row': raw_map,
