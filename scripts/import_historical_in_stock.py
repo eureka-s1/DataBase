@@ -18,7 +18,7 @@ if str(ROOT) not in sys.path:
 
 from app.db import db_session
 from app.services.common import to_float, to_int
-from app.services.customers import get_or_create_customer_id, resolve_customer_id
+from app.services.customers import get_or_create_customer_id, resolve_customer_id, upsert_alias
 from app.services.inbound import create_inbound_item
 
 DEFAULT_DATA_ROOT = ROOT / "2026data"
@@ -58,6 +58,7 @@ FREIGHT_RE = re.compile(r"CBM\s*F(?:R)?EIGHT", re.I)
 # - observed: 4 letters + 6 digits (e.g. TRLU711969)
 # - observed: 5 letters + 6/7 digits in some sheets
 CONTAINER_NO_RE = re.compile(r"^[A-Z]{4,5}\d{6,7}$", re.I)
+EN_ALIAS_RE = re.compile(r"^[A-Za-z][A-Za-z ]{0,79}$")
 
 
 @dataclass
@@ -144,6 +145,10 @@ def _is_skip_item_token(value: str) -> bool:
     return bool(re.match(r"^\d+\s*CTNS?$", v))
 
 
+def _normalize_name_like(value: str) -> str:
+    return re.sub(r"\s+", "", str(value or "").strip()).upper()
+
+
 def _read_book(path: Path, max_cols: int = 40) -> list[tuple[str, list[list]]]:
     suffix = path.suffix.lower()
     out: list[tuple[str, list[list]]] = []
@@ -187,6 +192,71 @@ def _pick_last_non_empty_sheet(book: list[tuple[str, list[list]]]) -> tuple[str,
         if _sheet_has_content(rows):
             return sname, rows
     return None
+
+
+def _sheet_year_from_name(sheet_name: str) -> int | None:
+    m = re.search(r"(20\d{2})", str(sheet_name or ""))
+    if not m:
+        return None
+    y = int(m.group(1))
+    if 2000 <= y <= 2100:
+        return y
+    return None
+
+
+def _looks_like_english_alias_token(value: str) -> bool:
+    s = str(value or "").strip()
+    if not s:
+        return False
+    # Alias detection currently only supports plain English aliases.
+    if not EN_ALIAS_RE.fullmatch(s):
+        return False
+    u = s.upper()
+    bad_exact = {
+        "CUSTOMER", "CUSTOMER NAME", "SHOP NO", "TEL", "ITEM NO", "DESCRIPTION",
+        "ITEM NAME", "MATERIAL", "CTNS", "QTY", "PRICE", "T PRICE", "CBM",
+        "DATE", "AUTO", "ORDER",
+    }
+    if u in bad_exact:
+        return False
+    return True
+
+
+def _collect_recent_sheet_aliases(book: list[tuple[str, list[list]]], customer_name: str, years: int = 2) -> tuple[list[str], Counter]:
+    stats = Counter()
+    out: set[str] = set()
+    current_year = datetime.now().year
+    min_year = current_year - max(1, years) + 1
+    customer_norm = _normalize_name_like(customer_name)
+
+    for sname, rows in book:
+        y = _sheet_year_from_name(sname)
+        if y is None:
+            stats["alias_sheets_skipped_unparsable_year"] += 1
+            continue
+        if y < min_year or y > current_year:
+            stats["alias_sheets_skipped_outside_window"] += 1
+            continue
+        stats["alias_sheets_scanned"] += 1
+        for row in rows[:2000]:
+            if not row:
+                continue
+            first = row[0] if len(row) > 0 else None
+            text = _to_text(first)
+            if not text:
+                continue
+            phone_token = _first_col_phone_token(first)
+            if phone_token and PHONE_RE.fullmatch(phone_token):
+                continue
+            if not _looks_like_english_alias_token(text):
+                continue
+            alias_norm = _normalize_name_like(text)
+            if not alias_norm or alias_norm == customer_norm:
+                continue
+            out.add(text.strip())
+
+    stats["aliases_detected"] = len(out)
+    return sorted(out), stats
 
 
 def _detect_header(rows: list[list], max_scan: int = 120) -> tuple[int, dict[int, str]]:
@@ -426,10 +496,21 @@ def run_import(args) -> dict:
                     print(f"[PARSE_FAIL] {folder.name}: {e}")
                 continue
 
+            alias_candidates: list[str] = []
+            try:
+                alias_book = _read_book(picked, max_cols=8)
+                alias_candidates, alias_stats = _collect_recent_sheet_aliases(alias_book, folder.name, years=2)
+                for k, v in alias_stats.items():
+                    stats[k] += v
+            except Exception:
+                stats["alias_scan_failed"] += 1
+
             if args.dry_run:
                 cid = resolve_customer_id(conn, folder.name)
                 if cid is None:
                     # Should not happen because we counted above; skip DB-touch logic in dry-run.
+                    if alias_candidates:
+                        stats["aliases_detected_unbound_customer"] += len(alias_candidates)
                     if not rows:
                         if all_sheets_empty:
                             stats["folders_all_sheets_empty"] += 1
@@ -437,6 +518,22 @@ def run_import(args) -> dict:
                                 print(f"[SKIP_ALL_EMPTY_SHEETS] {folder.name}")
                         stats["folders_no_in_stock_rows"] += 1
                     continue
+
+            if alias_candidates:
+                if args.dry_run:
+                    stats["aliases_would_upsert"] += len(alias_candidates)
+                else:
+                    for alias_name in alias_candidates:
+                        upsert_alias(
+                            conn,
+                            customer_id=cid,
+                            alias_name=alias_name,
+                            source="AUTO_DETECT",
+                            is_primary=0,
+                            is_active=1,
+                            remark="auto detected from recent two-year sheets first column",
+                        )
+                        stats["aliases_upserted"] += 1
 
             if phone:
                 c = conn.execute("SELECT phone FROM customers WHERE id=?", (cid,)).fetchone()

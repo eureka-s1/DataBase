@@ -990,3 +990,22 @@
   - 容器数据准备补充：
     - `container_manifest` 查询补充 `material/carton_count/qty/unit_price/total_price/deposit_hint` 字段。
 - 更新原因：修复币种误设与柜单货物字段缺失问题，确保导出内容与业务核对口径一致。
+
+### 74. 历史在库导入：近两年 Sheet 英文别名自动识别并入库
+- 时间：2026-04-09
+- 更新内容：
+  - 调整 `scripts/import_historical_in_stock.py`：
+    - 在历史在库导入时，新增“别名扫描”流程；
+    - 扫描所选客户收货文件中“近两年（按 sheet 名年份识别）”的 sheet；
+    - 从第一列提取英文别名候选（仅支持英文字母与空格，过滤手机号/表头词/客户主名）；
+    - 正式导入时将候选别名写入 `customer_aliases`（`AUTO_DETECT`）；
+    - 演练模式仅统计 `aliases_would_upsert`，不写库。
+  - 报表统计新增别名相关指标：
+    - `alias_sheets_scanned`
+    - `alias_sheets_skipped_unparsable_year`
+    - `alias_sheets_skipped_outside_window`
+    - `aliases_detected`
+    - `aliases_would_upsert` / `aliases_upserted`
+    - `aliases_detected_unbound_customer`
+    - `alias_scan_failed`
+- 更新原因：满足“历史在库导入自动发现近两年英文别名并入库”的补充需求，减少人工维护别名成本。
