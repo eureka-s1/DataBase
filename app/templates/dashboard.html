@@ -785,7 +785,7 @@
             <div class="small">逻辑：扫描工作目录下客户文件夹，按规则识别仍在库货物并导入。</div>
           </div>
           <div class="card">
-            <h3>导出与备份</h3>
+            <h3>导出</h3>
             <form id="formExportDaily" class="inline">
               <label>日期<input type="text" class="date-iso" name="inbound_date" placeholder="YYYY-MM-DD" required></label>
               <button class="btn" type="submit">导出日入库</button>
@@ -809,6 +809,11 @@
             <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
               <button class="btn" id="btnExportInventory" type="button">导出库存</button>
               <button class="btn" id="btnExportLedger" type="button">导出总账</button>
+            </div>
+          </div>
+          <div class="card">
+            <h3>备份</h3>
+            <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
               <button class="btn primary" id="btnBackup" type="button">立即备份</button>
               <button class="btn" id="btnBackupRefresh" type="button">刷新备份列表</button>
             </div>
@@ -1933,7 +1938,8 @@
       makeSubnav('panel-io', [
         { label: '手动导入', cards: uniq([cardOf('formImportUpload')]) },
         { label: '历史在库导入', cards: uniq([cardOf('formHistImport')]) },
-        { label: '导出与备份', cards: uniq([cardOf('formExportDaily')]) },
+        { label: '导出', cards: uniq([cardOf('formExportDaily')]) },
+        { label: '备份', cards: uniq([cardOf('btnBackup')]) },
       ]);
 
       makeSubnav('panel-filesync', [
