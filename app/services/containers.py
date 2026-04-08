@@ -388,11 +388,25 @@ def update_item_cbm_at_load(conn: Connection, container_id: int, inbound_item_id
 
 
 def confirm_container(conn: Connection, container_id: int) -> None:
-    c = conn.execute('SELECT status FROM containers WHERE id=?', (container_id,)).fetchone()
+    c = conn.execute('SELECT status, master_customer_id FROM containers WHERE id=?', (container_id,)).fetchone()
     if not c:
         raise ValueError('container not found')
     if c['status'] != 'DRAFT':
         raise ValueError('container status must be DRAFT')
+    if c['master_customer_id'] is None:
+        raise ValueError('master customer is required before confirm')
+    hit = conn.execute(
+        '''
+        SELECT 1
+        FROM container_items ci
+        JOIN inbound_items i ON i.id = ci.inbound_item_id
+        WHERE ci.container_id=? AND i.customer_id=?
+        LIMIT 1
+        ''',
+        (container_id, int(c['master_customer_id'])),
+    ).fetchone()
+    if not hit:
+        raise ValueError('master customer must have items in current container')
 
     ts = now_ts()
     conn.execute(
