@@ -75,6 +75,9 @@ class ParsedItem:
     total_price: float
     deposit_hint: float
     cbm_calculated: float
+    length_cm: float
+    width_cm: float
+    height_cm: float
     inbound_date_hint: str | None
     source_file: str
     source_sheet: str
@@ -323,6 +326,21 @@ def _extract_batch_date_from_header_row(row: list, mapping: dict[int, str]) -> s
     return _to_ymd(row[left_idx])
 
 
+def _fill_dimensions_from_cbm_suffix(row: list, mapping: dict[int, str], item: dict) -> None:
+    """
+    Implicit dimension rule:
+    length/width/height are read from the 3 cells right after CBM.
+    """
+    cbm_col = next((idx for idx, field in mapping.items() if field == "cbm_calculated"), None)
+    if cbm_col is None:
+        return
+    if cbm_col + 3 >= len(row):
+        return
+    item["length_cm"] = to_float(row[cbm_col + 1], 0.0)
+    item["width_cm"] = to_float(row[cbm_col + 2], 0.0)
+    item["height_cm"] = to_float(row[cbm_col + 3], 0.0)
+
+
 def _extract_phone_from_book(book: list[tuple[str, list[list]]]) -> str | None:
     c = Counter()
     # Phone is more likely to reflect current customer info in recent sheets.
@@ -403,6 +421,7 @@ def _parse_in_stock_from_last_sheet(path: Path, customer_name: str) -> tuple[lis
         item = {}
         for col_idx, field in mapping.items():
             item[field] = row[col_idx] if col_idx < len(row) else None
+        _fill_dimensions_from_cbm_suffix(row, mapping, item)
 
         item_name = _to_text(item.get("item_name_cn")) or _to_text(item.get("item_no"))
         if not item_name or _is_skip_item_token(item_name):
@@ -433,6 +452,9 @@ def _parse_in_stock_from_last_sheet(path: Path, customer_name: str) -> tuple[lis
                 total_price=to_float(item.get("total_price"), 0.0),
                 deposit_hint=to_float(item.get("deposit_hint"), 0.0),
                 cbm_calculated=to_float(item.get("cbm_calculated"), 0.0),
+                length_cm=to_float(item.get("length_cm"), 0.0),
+                width_cm=to_float(item.get("width_cm"), 0.0),
+                height_cm=to_float(item.get("height_cm"), 0.0),
                 inbound_date_hint=current_batch_date,
                 source_file=str(path),
                 source_sheet=sheet_name,
@@ -578,6 +600,9 @@ def run_import(args) -> dict:
                     "total_price": r.total_price,
                     "deposit_hint": r.deposit_hint,
                     "cbm_calculated": r.cbm_calculated,
+                    "length_cm": r.length_cm,
+                    "width_cm": r.width_cm,
+                    "height_cm": r.height_cm,
                     "status": "IN_STOCK",
                     "remark": f"HIST_IMPORT::{source_key}",
                 }
