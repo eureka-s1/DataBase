@@ -822,6 +822,17 @@ def sync_outbound_container_to_customers(conn: Connection, container_id: int, wo
     date_text = datetime.now().strftime("%Y/%m/%d")
     unit_price = to_float(c["default_price_per_m3"], 0.0)
     fx_cny = _FX_CNY
+    master_name = ""
+    master_phone = ""
+    try:
+        mid = int(c["master_customer_id"] or 0)
+    except Exception:
+        mid = 0
+    if mid > 0:
+        mrow = conn.execute("SELECT name, COALESCE(phone, '') AS phone FROM customers WHERE id=?", (mid,)).fetchone()
+        if mrow:
+            master_name = str(mrow["name"] or "").strip()
+            master_phone = str(mrow["phone"] or "").strip()
 
     profiles: list[tuple[str, list[str]]] = []
     id_to_profile: dict[int, tuple[str, list[str]]] = {}
@@ -863,8 +874,8 @@ def sync_outbound_container_to_customers(conn: Connection, container_id: int, wo
             vals = {
                 4: str(c["container_no"] or ""),
                 5: f"{ctns} CTNS",
-                6: str(r["customer_phone"] or ""),
-                7: name,
+                6: master_phone or str(r["customer_phone"] or ""),
+                7: master_name or name,
                 8: date_text,
                 9: f"{cbm:.1f} CBM FREIGHT",
                 10: freight_cny,
