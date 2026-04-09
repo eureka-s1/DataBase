@@ -98,9 +98,9 @@ def _format_receipt_goods_sheet(ws, header_row: int = 1) -> None:
             continue
         ws.cell(r, 8).number_format = "0"
         ws.cell(r, 9).number_format = "0"
-        ws.cell(r, 10).number_format = "$#,##0"  # display rounded integer USD
-        ws.cell(r, 11).number_format = "$#,##0"
-        ws.cell(r, 12).number_format = "$#,##0"
+        ws.cell(r, 10).number_format = "¥#,##0"  # PRICE display
+        ws.cell(r, 11).number_format = "¥#,##0"  # T.PRICE display
+        ws.cell(r, 12).number_format = "¥#,##0"  # deposit display
         ws.cell(r, 13).number_format = "0.0"      # CBM 1 decimal display
         ws.cell(r, 14).number_format = "0.###"
         ws.cell(r, 15).number_format = "0.###"

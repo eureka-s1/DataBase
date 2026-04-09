@@ -746,9 +746,9 @@ def sync_receipts_by_batch(conn: Connection, batch_id: int, work_dir: Path) -> d
                 for cno, v in enumerate(vals, start=1):
                     cell = ws.cell(rno, cno, v)
                     _style_songti_center_border(cell)
-                ws.cell(rno, 9).number_format = "$#,##0"
-                ws.cell(rno, 10).number_format = "$#,##0"
-                ws.cell(rno, 11).number_format = "$#,##0"
+                ws.cell(rno, 9).number_format = "¥#,##0"
+                ws.cell(rno, 10).number_format = "¥#,##0"
+                ws.cell(rno, 11).number_format = "¥#,##0"
                 ws.cell(rno, 12).number_format = "0.0"
                 row_count += 1
                 changed = True
