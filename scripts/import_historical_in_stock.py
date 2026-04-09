@@ -18,7 +18,7 @@ if str(ROOT) not in sys.path:
 
 from app.db import db_session
 from app.services.common import to_float, to_int
-from app.services.customers import get_or_create_customer_id, resolve_customer_id, upsert_alias
+from app.services.customers import create_customer, resolve_customer_id, upsert_alias
 from app.services.inbound import create_inbound_item
 
 DEFAULT_DATA_ROOT = ROOT / "2026data"
@@ -152,6 +152,49 @@ def _normalize_name_like(value: str) -> str:
     return re.sub(r"\s+", "", str(value or "").strip()).upper()
 
 
+def _resolve_customer_id_by_main_name(conn, raw_name: str) -> int | None:
+    key = _normalize_name_like(raw_name)
+    if not key:
+        return None
+    row = conn.execute(
+        "SELECT id FROM customers WHERE UPPER(REPLACE(name, ' ', ''))=? LIMIT 1",
+        (key,),
+    ).fetchone()
+    return int(row["id"]) if row else None
+
+
+def _next_auto_customer_code(conn, prefix: str = "AUTOIMP") -> str:
+    i = 1
+    while True:
+        code = f"{prefix}{i:05d}"
+        hit = conn.execute("SELECT 1 FROM customers WHERE customer_code=? LIMIT 1", (code,)).fetchone()
+        if not hit:
+            return code
+        i += 1
+
+
+def _get_or_create_customer_id_by_main_name(conn, raw_name: str) -> tuple[int, bool]:
+    name = (raw_name or "").strip()
+    if not name:
+        raise ValueError("empty customer name")
+    cid = _resolve_customer_id_by_main_name(conn, name)
+    if cid is not None:
+        return cid, False
+    code = _next_auto_customer_code(conn)
+    cid = create_customer(conn, customer_code=code, name=name, default_price_per_m3=89.71)
+    # keep an explicit AUTO_DETECT alias trace for folder-name auto creation
+    upsert_alias(
+        conn,
+        customer_id=int(cid),
+        alias_name=name,
+        source="AUTO_DETECT",
+        is_primary=1,
+        is_active=1,
+        remark="auto created from historical import folder main name",
+    )
+    return int(cid), True
+
+
 def _read_book(path: Path, max_cols: int = 40) -> list[tuple[str, list[list]]]:
     suffix = path.suffix.lower()
     out: list[tuple[str, list[list]]] = []
@@ -225,7 +268,12 @@ def _looks_like_english_alias_token(value: str) -> bool:
     return True
 
 
-def _collect_recent_sheet_aliases(book: list[tuple[str, list[list]]], customer_name: str, years: int = 2) -> tuple[list[str], Counter]:
+def _collect_recent_sheet_aliases(
+    book: list[tuple[str, list[list]]],
+    customer_name: str,
+    reserved_main_name_keys: set[str],
+    years: int = 2,
+) -> tuple[list[str], Counter]:
     stats = Counter()
     out: set[str] = set()
     current_year = datetime.now().year
@@ -255,6 +303,11 @@ def _collect_recent_sheet_aliases(book: list[tuple[str, list[list]]], customer_n
                 continue
             alias_norm = _normalize_name_like(text)
             if not alias_norm or alias_norm == customer_norm:
+                continue
+            # Folder names are protected customer canonical names.
+            # They must never become another customer's alias.
+            if alias_norm in reserved_main_name_keys and alias_norm != customer_norm:
+                stats["aliases_skipped_reserved_main_name"] += 1
                 continue
             out.add(text.strip())
 
@@ -476,6 +529,7 @@ def run_import(args) -> dict:
         raise SystemExit(f"data root not found: {data_root}")
 
     folders = _collect_customer_folders(data_root)
+    reserved_main_name_keys = {_normalize_name_like(f.name) for f in folders if _normalize_name_like(f.name)}
     if args.customer:
         allow = {x.strip() for x in args.customer if x.strip()}
         folders = [f for f in folders if f.name in allow]
@@ -502,11 +556,11 @@ def run_import(args) -> dict:
             # Always ensure customer master exists once a customer file is found,
             # even if this customer has no in-stock rows to import.
             if args.dry_run:
-                cid = resolve_customer_id(conn, folder.name)
+                cid = _resolve_customer_id_by_main_name(conn, folder.name)
                 if cid is None:
                     stats["customers_would_auto_create"] += 1
             else:
-                cid, created = get_or_create_customer_id(conn, folder.name)
+                cid, created = _get_or_create_customer_id_by_main_name(conn, folder.name)
                 if created:
                     stats["customers_auto_created"] += 1
 
@@ -521,14 +575,19 @@ def run_import(args) -> dict:
             alias_candidates: list[str] = []
             try:
                 alias_book = _read_book(picked, max_cols=8)
-                alias_candidates, alias_stats = _collect_recent_sheet_aliases(alias_book, folder.name, years=2)
+                alias_candidates, alias_stats = _collect_recent_sheet_aliases(
+                    alias_book,
+                    folder.name,
+                    reserved_main_name_keys=reserved_main_name_keys,
+                    years=2,
+                )
                 for k, v in alias_stats.items():
                     stats[k] += v
             except Exception:
                 stats["alias_scan_failed"] += 1
 
             if args.dry_run:
-                cid = resolve_customer_id(conn, folder.name)
+                cid = _resolve_customer_id_by_main_name(conn, folder.name)
                 if cid is None:
                     # Should not happen because we counted above; skip DB-touch logic in dry-run.
                     if alias_candidates:
