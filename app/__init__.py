@@ -5,6 +5,9 @@ from pathlib import Path
 from uuid import uuid4
 from datetime import datetime
 import argparse
+import re
+
+import openpyxl
 
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
@@ -86,6 +89,131 @@ from .services.file_sync import (
     sync_receipts_by_batch,
 )
 import scripts.import_historical_in_stock as hist_import
+
+
+def _normalize_name_key(name: str) -> str:
+    return re.sub(r"\s+", "", str(name or "")).upper().strip()
+
+
+def _next_auto_customer_code(conn, prefix: str = "AUTOIMP") -> str:
+    i = 1
+    while True:
+        code = f"{prefix}{i:05d}"
+        row = conn.execute("SELECT 1 FROM customers WHERE customer_code=? LIMIT 1", (code,)).fetchone()
+        if not row:
+            return code
+        i += 1
+
+
+def _resolve_customer_id_by_main_name(conn, raw_name: str) -> int | None:
+    key = _normalize_name_key(raw_name)
+    if not key:
+        return None
+    row = conn.execute(
+        "SELECT id FROM customers WHERE UPPER(REPLACE(name, ' ', ''))=? LIMIT 1",
+        (key,),
+    ).fetchone()
+    return int(row["id"]) if row else None
+
+
+def _ensure_customer_folder_and_empty_workbook(work_dir: Path, customer_name: str) -> Path:
+    customer_dir = (work_dir / customer_name).resolve()
+    customer_dir.mkdir(parents=True, exist_ok=True)
+    now = datetime.now()
+    ym = f"{now.year} {now.month}"
+    xlsx_path = customer_dir / f"{customer_name} {now.year}收货清单.xlsx"
+    if not xlsx_path.exists():
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = ym
+        wb.save(xlsx_path)
+        return xlsx_path
+    wb = openpyxl.load_workbook(xlsx_path)
+    names = {str(x).strip() for x in wb.sheetnames}
+    norm_names = {_normalize_name_key(x) for x in names}
+    if _normalize_name_key(ym) not in norm_names and _normalize_name_key(f"{now.year} {now.month:02d}") not in norm_names:
+        wb.create_sheet(title=ym)
+    if wb.worksheets:
+        wb.active = len(wb.worksheets) - 1
+    wb.save(xlsx_path)
+    return xlsx_path
+
+
+def _collect_unresolved_customer_names(conn, file_path: Path) -> list[str]:
+    parsed = parse_inbound_excel(file_path)
+    names = []
+    seen = set()
+    for row in parsed.get("rows", []):
+        n = str(row.get("customer_name") or "").strip()
+        if not n:
+            continue
+        k = _normalize_name_key(n)
+        if k in seen:
+            continue
+        seen.add(k)
+        if resolve_customer_id(conn, n) is None:
+            names.append(n)
+    return names
+
+
+def _apply_customer_review(
+    conn,
+    unresolved_names: list[str],
+    decisions: list[dict],
+    work_dir: Path,
+) -> dict:
+    by_key = {_normalize_name_key(x): x for x in unresolved_names}
+    dmap = {}
+    for d in decisions or []:
+        raw_name = str((d or {}).get("raw_name") or "").strip()
+        if not raw_name:
+            continue
+        dmap[_normalize_name_key(raw_name)] = d
+
+    created_customers = []
+    linked_aliases = []
+    created_files = []
+    missing = [x for x in unresolved_names if _normalize_name_key(x) not in dmap]
+    if missing:
+        raise ValueError(f"customer review decision missing: {', '.join(missing)}")
+
+    for key, raw_name in by_key.items():
+        d = dmap.get(key) or {}
+        action = str(d.get("action") or "").strip().upper()
+        if action not in ("ALIAS", "NEW"):
+            raise ValueError(f"invalid action for {raw_name}")
+        if action == "ALIAS":
+            target_name = str(d.get("target_name") or "").strip()
+            if not target_name:
+                raise ValueError(f"target_name is required for alias action: {raw_name}")
+            cid = resolve_customer_id(conn, target_name)
+            if cid is None:
+                raise ValueError(f"target customer not found: {target_name}")
+            upsert_alias(
+                conn,
+                customer_id=int(cid),
+                alias_name=raw_name,
+                source="MANUAL",
+                is_primary=0,
+                is_active=1,
+                remark="manual review during inbound import",
+            )
+            linked_aliases.append({"alias_name": raw_name, "target_name": target_name, "customer_id": int(cid)})
+            continue
+
+        cid = _resolve_customer_id_by_main_name(conn, raw_name)
+        if cid is None:
+            code = _next_auto_customer_code(conn)
+            cid = create_customer(conn, customer_code=code, name=raw_name, default_price_per_m3=89.71)
+            created_customers.append({"customer_id": int(cid), "name": raw_name})
+        file_path = _ensure_customer_folder_and_empty_workbook(work_dir, raw_name)
+        created_files.append({"customer_name": raw_name, "file_path": str(file_path)})
+
+    return {
+        "created_customers": created_customers,
+        "linked_aliases": linked_aliases,
+        "created_files": created_files,
+    }
 
 
 def login_required(fn):
@@ -702,17 +830,49 @@ def create_app() -> Flask:
     @app.route('/import/inbound/execute', methods=['POST'])
     @login_required
     def import_execute_api():
-        payload = request.get_json(force=True)
+        payload = request.get_json(force=True) or {}
         path = Path(payload['file_path'])
         inbound_date = payload.get('inbound_date')
+        review_decisions = payload.get('customer_review') or []
+        settings = get_ui_settings()
+        work_dir = Path(settings.get('work_dir') or '').expanduser().resolve()
+        if not work_dir.exists() or not work_dir.is_dir():
+            return {'error': 'work directory not found'}, 400
         with db_session() as conn:
+            unresolved = _collect_unresolved_customer_names(conn, path)
+            if unresolved:
+                if not review_decisions:
+                    return {
+                        'error': 'customer review required',
+                        'error_code': 'CUSTOMER_REVIEW_REQUIRED',
+                        'unknown_customers': unresolved,
+                    }, 409
+                review_result = _apply_customer_review(
+                    conn,
+                    unresolved_names=unresolved,
+                    decisions=review_decisions,
+                    work_dir=work_dir,
+                )
+                unresolved_after = _collect_unresolved_customer_names(conn, path)
+                if unresolved_after:
+                    return {
+                        'error': f'unresolved customers after review: {", ".join(unresolved_after)}',
+                    }, 400
+            else:
+                review_result = {
+                    "created_customers": [],
+                    "linked_aliases": [],
+                    "created_files": [],
+                }
             result = import_inbound_excel(
                 conn,
                 path=path,
                 inbound_date=inbound_date,
                 created_by=int(session['user_id']),
-                dry_run=bool(payload.get('dry_run', False)),
+                dry_run=False,
+                auto_create_customers=False,
             )
+        result['customer_review'] = review_result
         return result
 
     @app.route('/import/inbound/manual-item', methods=['POST'])

@@ -492,7 +492,14 @@ def _insert_import_row(
     )
 
 
-def import_inbound_excel(conn: Connection, path: Path, inbound_date: str | None, created_by: int, dry_run: bool = True) -> dict:
+def import_inbound_excel(
+    conn: Connection,
+    path: Path,
+    inbound_date: str | None,
+    created_by: int,
+    dry_run: bool = True,
+    auto_create_customers: bool = True,
+) -> dict:
     parsed = parse_inbound_excel(path)
     ts = now_ts()
     batch_no = f'IB-{ts.replace("-", "").replace(":", "").replace(" ", "")}-{uuid4().hex[:6].upper()}'
@@ -544,6 +551,24 @@ def import_inbound_excel(conn: Connection, path: Path, inbound_date: str | None,
             if not create_name:
                 failed += 1
                 reason = "customer name empty and cannot auto-create"
+                err_rows.append({'row_no': row['row_no'], 'reason': reason})
+                if not dry_run:
+                    _insert_import_row(
+                        conn,
+                        batch_id=batch_id,
+                        row_no=int(row['row_no']),
+                        source_sheet=row.get('source_sheet') or '',
+                        source_row=row.get('raw_row') or {},
+                        normalized=normalized,
+                        inbound_item_id=None,
+                        is_valid=0,
+                        error_reason=reason,
+                    )
+                continue
+
+            if not auto_create_customers:
+                failed += 1
+                reason = f"customer unresolved: {create_name}"
                 err_rows.append({'row_no': row['row_no'], 'reason': reason})
                 if not dry_run:
                     _insert_import_row(

@@ -161,6 +161,8 @@
     .modal-mask.show { display: flex; }
     .modal-card { width: min(520px, 92vw); background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
     #doneModalText { white-space: pre-line; }
+    #customerReviewTable th, #customerReviewTable td { padding: 6px; border-bottom: 1px solid #edf2f8; }
+    #customerReviewTable input[type="text"] { min-width: 180px; }
     .preview-box { margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #fbfdff; display: none; }
     .preview-box.show { display: block; }
     .preview-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
@@ -910,6 +912,17 @@
       </div>
     </div>
   </div>
+  <div id="customerReviewModal" class="modal-mask">
+    <div class="modal-card" style="width:min(760px,96vw);">
+      <h3 style="margin:0 0 8px;">新客户人工审核</h3>
+      <div class="small">请逐条选择：是否原有客户别名。选择“是”时请输入主名或已有别名。</div>
+      <table id="customerReviewTable" style="margin-top:8px;"></table>
+      <div style="margin-top:10px; display:flex; justify-content:flex-end; gap:8px;">
+        <button id="btnCustomerReviewCancel" class="btn" type="button">取消</button>
+        <button id="btnCustomerReviewSubmit" class="btn primary" type="button">确认并继续导入</button>
+      </div>
+    </div>
+  </div>
 
   <script>
     const state = {
@@ -971,6 +984,7 @@
       moneyCurrency: 'USD',
       fxRate: 7.0,
     };
+    let pendingImportExecution = null;
 
     function setMsg(text, ok = true) {
       const box = document.getElementById('msg');
@@ -993,7 +1007,10 @@
       const data = ct.includes('application/json') ? await res.json() : await res.text();
       if (!res.ok) {
         const msg = (data && data.error) ? data.error : (typeof data === 'string' ? data : JSON.stringify(data));
-        throw new Error(msg);
+        const err = new Error(msg);
+        err.status = res.status;
+        err.data = data;
+        throw err;
       }
       return data;
     }
@@ -1040,6 +1057,51 @@
     }
     function hideDoneModal() {
       byId('doneModal').classList.remove('show');
+    }
+
+    function showCustomerReviewModal(unknownNames = []) {
+      const table = byId('customerReviewTable');
+      const rows = (unknownNames || []).map((name, idx) => `
+        <tr>
+          <td>${idx + 1}</td>
+          <td>${name}</td>
+          <td>
+            <label><input type="radio" name="cr_action_${idx}" value="ALIAS" checked>是（别名）</label>
+            <label style="margin-left:8px;"><input type="radio" name="cr_action_${idx}" value="NEW">不是</label>
+          </td>
+          <td><input type="text" class="cr_target" data-idx="${idx}" placeholder="主名或已有别名（选择“是”时必填）"></td>
+        </tr>
+      `).join('');
+      table.innerHTML = `<tr><th>#</th><th>导入名称</th><th>是否别名</th><th>目标客户（别名模式）</th></tr>${rows}`;
+      byId('customerReviewModal').classList.add('show');
+    }
+
+    function hideCustomerReviewModal() {
+      byId('customerReviewModal').classList.remove('show');
+      byId('customerReviewTable').innerHTML = '';
+    }
+
+    function collectCustomerReviewDecisions() {
+      const table = byId('customerReviewTable');
+      const trs = Array.from(table.querySelectorAll('tr')).slice(1);
+      const out = [];
+      for (let i = 0; i < trs.length; i += 1) {
+        const tds = trs[i].querySelectorAll('td');
+        const rawName = String(tds[1]?.textContent || '').trim();
+        const checked = trs[i].querySelector(`input[name="cr_action_${i}"]:checked`);
+        const action = String(checked?.value || '').trim().toUpperCase();
+        const target = String(trs[i].querySelector('.cr_target')?.value || '').trim();
+        if (!rawName || !action) continue;
+        if (action === 'ALIAS' && !target) {
+          throw new Error(`请填写“${rawName}”对应的目标客户名或别名`);
+        }
+        out.push({
+          raw_name: rawName,
+          action,
+          target_name: action === 'ALIAS' ? target : '',
+        });
+      }
+      return out;
     }
 
     function setImportFilePath(path = '', filename = '') {
@@ -2836,11 +2898,11 @@
           setMsg('请先上传收货清单', false);
           return;
         }
+        const inboundDate = f.get('inbound_date') || null;
         try {
           const r = await api('/import/inbound/execute', 'POST', {
             file_path: filePath,
-            inbound_date: f.get('inbound_date') || null,
-            dry_run: false,
+            inbound_date: inboundDate,
           });
           byId('ioResult').textContent = JSON.stringify(r, null, 2);
           await refreshCustomers();
@@ -2852,7 +2914,19 @@
           setMsg(`导入完成：日期 ${formatDateDisplay(r.inbound_date_used)}，成功入库 ${r.success_rows}，失败 ${r.failed_rows}，自动新建客户 ${r.auto_created_customer_count || 0}`);
           clearImportSelection();
           showDoneModal(`批次ID: ${r.batch_id}\n入库日期: ${formatDateDisplay(r.inbound_date_used)}\n成功入库: ${r.success_rows} 条\n失败: ${r.failed_rows} 条\n新建客户: ${r.auto_created_customer_count || 0}`, '执行完成');
-        } catch (err) { setMsg(err.message, false); }
+        } catch (err) {
+          if (Number(err.status || 0) === 409 && err.data && err.data.error_code === 'CUSTOMER_REVIEW_REQUIRED') {
+            pendingImportExecution = {
+              file_path: filePath,
+              inbound_date: inboundDate,
+              unknown_customers: err.data.unknown_customers || [],
+            };
+            showCustomerReviewModal(pendingImportExecution.unknown_customers);
+            setMsg(`检测到 ${pendingImportExecution.unknown_customers.length} 个未识别客户，请先人工审核`, false);
+            return;
+          }
+          setMsg(err.message, false);
+        }
       };
       byId('formImportSingleItem').onsubmit = async (e) => {
         e.preventDefault();
@@ -2933,6 +3007,44 @@
         byId('importInboundDate').value = `${y}-${m}-${d}`;
       };
       byId('btnDoneModalOk').onclick = hideDoneModal;
+      byId('btnCustomerReviewCancel').onclick = () => {
+        pendingImportExecution = null;
+        hideCustomerReviewModal();
+      };
+      byId('btnCustomerReviewSubmit').onclick = async () => {
+        if (!pendingImportExecution) {
+          hideCustomerReviewModal();
+          return;
+        }
+        try {
+          const decisions = collectCustomerReviewDecisions();
+          const r = await api('/import/inbound/execute', 'POST', {
+            file_path: pendingImportExecution.file_path,
+            inbound_date: pendingImportExecution.inbound_date,
+            customer_review: decisions,
+          });
+          byId('ioResult').textContent = JSON.stringify(r, null, 2);
+          hideCustomerReviewModal();
+          pendingImportExecution = null;
+          await refreshCustomers();
+          state.inboundQuery.inbound_date = formatDateInputValue(r.inbound_date_used);
+          state.inboundQuery.only_in_stock = '1';
+          await runInboundQuery(true);
+          await refreshSummary();
+          await refreshImportBatches('', '', 50);
+          setMsg(`导入完成：日期 ${formatDateDisplay(r.inbound_date_used)}，成功入库 ${r.success_rows}，失败 ${r.failed_rows}`);
+          clearImportSelection();
+          const rv = r.customer_review || {};
+          const created = Array.isArray(rv.created_customers) ? rv.created_customers.length : 0;
+          const aliased = Array.isArray(rv.linked_aliases) ? rv.linked_aliases.length : 0;
+          showDoneModal(
+            `批次ID: ${r.batch_id}\n入库日期: ${formatDateDisplay(r.inbound_date_used)}\n成功入库: ${r.success_rows} 条\n失败: ${r.failed_rows} 条\n审核结果: 新建客户 ${created}，别名关联 ${aliased}`,
+            '执行完成'
+          );
+        } catch (err) {
+          setMsg(err.message, false);
+        }
+      };
 
       byId('formImportRollback').onsubmit = async (e) => {
         e.preventDefault();
