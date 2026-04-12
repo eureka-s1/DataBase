@@ -3090,10 +3090,11 @@
           const details = (Array.isArray(r.updated_files) ? r.updated_files : [])
             .map(x => `- ${x.customer_name || ''}: ${x.file_path || ''}`)
             .join('\n');
-          finishRunningModal(
-            `批次 ${batchId} 同步完成：更新文件 ${r.files_updated || 0} 个，写入 ${r.rows || 0} 行。${details ? `\n\n已更新文件：\n${details}` : ''}`,
-            '执行完成'
-          );
+          const errs = (Array.isArray(r.errors) ? r.errors : []).filter(Boolean);
+          const errText = errs.length ? `\n\n错误明细：\n${errs.map(x => `- ${x}`).join('\n')}` : '';
+          const msg = `批次 ${batchId} 同步完成：更新文件 ${r.files_updated || 0} 个，写入 ${r.rows || 0} 行。${details ? `\n\n已更新文件：\n${details}` : ''}${errText}`;
+          finishRunningModal(msg, errs.length ? '执行异常' : '执行完成');
+          if (errs.length) setMsg(`收货同步完成，但存在 ${errs.length} 条错误`, false);
           await refreshSyncReceipts();
         } catch (err) {
           finishRunningModal(`收货同步失败：${err.message}`, '执行失败');
