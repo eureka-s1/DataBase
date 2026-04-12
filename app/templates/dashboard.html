@@ -165,7 +165,14 @@
     #customerReviewTable .cr-actions { display: flex; gap: 0; align-items: center; white-space: nowrap; }
     #customerReviewTable .cr-actions label { display: inline-flex; align-items: center; gap: 2px; margin: 0; color: #2f455a; font-size: 13px; padding-right: 0; }
     #customerReviewTable .cr-actions label + label { margin-left: 2px; }
-    #customerReviewTable .cr-actions input[type="radio"] { margin: 0 2px 0 0; }
+    #customerReviewTable .cr-actions input[type="radio"] {
+      min-width: 0;
+      width: 14px;
+      height: 14px;
+      padding: 0;
+      margin: 0 2px 0 0;
+      vertical-align: middle;
+    }
     #customerReviewTable input[type="text"] { width: 320px; min-width: 320px; }
     .preview-box { margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #fbfdff; display: none; }
     .preview-box.show { display: block; }
