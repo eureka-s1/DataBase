@@ -162,8 +162,10 @@
     .modal-card { width: min(520px, 92vw); max-height: 88vh; overflow: auto; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
     #doneModalText { white-space: pre-line; }
     #customerReviewTable th, #customerReviewTable td { padding: 6px; border-bottom: 1px solid #edf2f8; }
-    #customerReviewTable .cr-actions { display: flex; gap: 4px; align-items: center; white-space: nowrap; }
-    #customerReviewTable .cr-actions label { display: inline-flex; align-items: center; gap: 3px; margin: 0; color: #2f455a; font-size: 13px; padding-right: 2px; }
+    #customerReviewTable .cr-actions { display: flex; gap: 0; align-items: center; white-space: nowrap; }
+    #customerReviewTable .cr-actions label { display: inline-flex; align-items: center; gap: 2px; margin: 0; color: #2f455a; font-size: 13px; padding-right: 0; }
+    #customerReviewTable .cr-actions label + label { margin-left: 2px; }
+    #customerReviewTable .cr-actions input[type="radio"] { margin: 0 2px 0 0; }
     #customerReviewTable input[type="text"] { width: 320px; min-width: 320px; }
     .preview-box { margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #fbfdff; display: none; }
     .preview-box.show { display: block; }
@@ -223,6 +225,9 @@
     #tablePlannerAvailable th:last-child, #tablePlannerAvailable td:last-child { width: 72px; text-align: center; }
     #tablePlannerAvailable.summary-mode th:nth-child(3), #tablePlannerAvailable.summary-mode td:nth-child(3) { width: 58px; text-align: right; }
     #tablePlannerAvailable.summary-mode th:nth-child(4), #tablePlannerAvailable.summary-mode td:nth-child(4) { width: 92px; text-align: right; }
+    #tablePlannerAvailable.shop-summary-mode th:nth-child(3), #tablePlannerAvailable.shop-summary-mode td:nth-child(3) { width: 120px; text-align: left; }
+    #tablePlannerAvailable.shop-summary-mode th:nth-child(4), #tablePlannerAvailable.shop-summary-mode td:nth-child(4) { width: 58px; text-align: right; }
+    #tablePlannerAvailable.shop-summary-mode th:nth-child(5), #tablePlannerAvailable.shop-summary-mode td:nth-child(5) { width: 92px; text-align: right; }
     #plannerAvailableWrap { overflow-x: auto; }
     @media (max-width: 920px) {
       .layout { grid-template-columns: 1fr; }
@@ -1630,6 +1635,7 @@
       const shopSummaryMap = new Map();
       rows.forEach(r => {
         const shop = String(r.shop_no || '').trim();
+        const customer = String(r.customer_name || '').trim();
         const st = String(r.status || '').trim();
         const cbm = Number(r.cbm_final ?? r.cbm_calculated ?? 0);
         const carton = Number(r.carton_count || 0);
@@ -1648,26 +1654,29 @@
           });
           return;
         }
-        const cur = shopSummaryMap.get(shop) || {
-          group_key: shop,
+        const groupKey = `${shop}::${customer}`;
+        const cur = shopSummaryMap.get(groupKey) || {
+          group_key: groupKey,
           shop_no: shop,
+          source_customer_name: customer,
           cartons: 0,
           cbm_total: 0,
           stock_item_ids: [],
           statuses: new Set(),
-          source_customer_names: new Set(),
           is_empty_shop_single: false,
         };
         cur.cartons += Number.isFinite(carton) ? carton : 0;
         cur.cbm_total += Number.isFinite(cbm) ? cbm : 0;
         if (st) cur.statuses.add(st);
         if (st === 'IN_STOCK') cur.stock_item_ids.push(Number(r.id));
-        const cn = String(r.customer_name || '').trim();
-        if (cn) cur.source_customer_names.add(cn);
-        shopSummaryMap.set(shop, cur);
+        shopSummaryMap.set(groupKey, cur);
       });
       state.plannerAvailableShopSummary = Array.from(shopSummaryMap.values())
-        .sort((a, b) => String(a.shop_no || '').localeCompare(String(b.shop_no || '')))
+        .sort((a, b) => {
+          const s = String(a.shop_no || '').localeCompare(String(b.shop_no || ''));
+          if (s !== 0) return s;
+          return String(a.source_customer_name || '').localeCompare(String(b.source_customer_name || ''));
+        })
         .map(x => ({
           group_key: String(x.group_key || x.shop_no || ''),
           shop_no: String(x.shop_no || ''),
@@ -1675,7 +1684,7 @@
           cbm_total: x.cbm_total,
           stock_item_ids: Array.from(new Set((x.stock_item_ids || []).filter(n => Number.isFinite(n) && n > 0))),
           status_text: x.is_empty_shop_single ? String(x.status_text || '') : Array.from(x.statuses || []).sort().join('/'),
-          source_customer_name: x.is_empty_shop_single ? String(x.source_customer_name || '') : Array.from(x.source_customer_names || []).sort().join('/'),
+          source_customer_name: String(x.source_customer_name || ''),
           is_empty_shop_single: !!x.is_empty_shop_single,
         }));
 
@@ -1695,6 +1704,7 @@
       const showStatusCol = !state.plannerHideAllocated;
       if (state.plannerViewMode === 'summary') {
         byId('tablePlannerAvailable').classList.add('summary-mode');
+        byId('tablePlannerAvailable').classList.remove('shop-summary-mode');
         const trs = pageRows.map(r => {
           const canPick = Array.isArray(r.stock_item_ids) && r.stock_item_ids.length > 0;
           const pickCell = canPick
@@ -1717,32 +1727,31 @@
 
       if (state.plannerViewMode === 'shop_summary') {
         byId('tablePlannerAvailable').classList.add('summary-mode');
+        byId('tablePlannerAvailable').classList.add('shop-summary-mode');
         const trs = pageRows.map(r => {
           const canPick = Array.isArray(r.stock_item_ids) && r.stock_item_ids.length > 0;
           const pickCell = canPick
-            ? `<input type="checkbox" class="plannerPickShop" value="${encodeURIComponent(String(r.group_key || ''))}">`
+            ? `<input type="checkbox" class="plannerPickCustomer" value="${encodeURIComponent(String(r.group_key || ''))}">`
             : '<span class="small">-</span>';
           const shopText = String(r.shop_no || '').trim() || '（空，不合并）';
-          const sourceText = String(r.source_customer_name || '').trim();
-          const shopCell = sourceText
-            ? `${textCell(shopText, 20)}<div class="small">客户：${textCell(sourceText, 16)}</div>`
-            : textCell(shopText, 20);
           return `<tr>
             <td>${pickCell}</td>
-            <td>${shopCell}</td>
+            <td>${textCell(shopText, 20)}</td>
+            <td>${textCell(r.source_customer_name || '', 16)}</td>
             <td>${r.cartons}</td>
             <td>${Number(r.cbm_total || 0).toFixed(3)}</td>
             ${showStatusCol ? `<td>${textCell(r.status_text || '', 14)}</td>` : ''}
             <td><span class="small">批量加入</span></td>
           </tr>`;
         });
-        const headers = ['选择', '店铺', '件数', '总CBM'].concat(showStatusCol ? ['状态'] : []).concat(['操作']);
+        const headers = ['选择', '店铺', '客户', '件数', '总CBM'].concat(showStatusCol ? ['状态'] : []).concat(['操作']);
         renderTable(byId('tablePlannerAvailable'), headers, trs);
         refreshPlannerFillPreview();
         return;
       }
 
       byId('tablePlannerAvailable').classList.remove('summary-mode');
+      byId('tablePlannerAvailable').classList.remove('shop-summary-mode');
       const trs = pageRows.map(r => {
         const canPick = String(r.status || '') === 'IN_STOCK';
         const cartons = Number(r.carton_count || 0);
