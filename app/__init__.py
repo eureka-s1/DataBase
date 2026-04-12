@@ -670,8 +670,13 @@ def create_app() -> Flask:
     @login_required
     def ledger_api():
         customer_id = request.args.get('customer_id')
+        customer_name = (request.args.get('customer_name') or '').strip()
         with db_session() as conn:
-            rows = ledger(conn, int(customer_id) if customer_id else None)
+            rows = ledger(
+                conn,
+                customer_id=int(customer_id) if customer_id else None,
+                customer_name=customer_name or None,
+            )
         return jsonify(rows)
 
     @app.route('/exports/daily-inbound', methods=['POST'])

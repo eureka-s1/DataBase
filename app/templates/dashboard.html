@@ -162,8 +162,8 @@
     .modal-card { width: min(520px, 92vw); max-height: 88vh; overflow: auto; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
     #doneModalText { white-space: pre-line; }
     #customerReviewTable th, #customerReviewTable td { padding: 6px; border-bottom: 1px solid #edf2f8; }
-    #customerReviewTable .cr-actions { display: flex; gap: 10px; align-items: center; white-space: nowrap; }
-    #customerReviewTable .cr-actions label { display: inline-flex; align-items: center; gap: 4px; margin: 0; color: #2f455a; font-size: 13px; }
+    #customerReviewTable .cr-actions { display: flex; gap: 4px; align-items: center; white-space: nowrap; }
+    #customerReviewTable .cr-actions label { display: inline-flex; align-items: center; gap: 3px; margin: 0; color: #2f455a; font-size: 13px; padding-right: 2px; }
     #customerReviewTable input[type="text"] { width: 320px; min-width: 320px; }
     .preview-box { margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #fbfdff; display: none; }
     .preview-box.show { display: block; }
@@ -352,7 +352,7 @@
         <div class="card">
           <h3>总账查询</h3>
           <form id="formLedgerQuery" class="inline">
-            <label>客户ID（可空）<input name="customer_id" placeholder="例如 1"></label>
+            <label>客户名（可空）<input name="customer_name" placeholder="例如 MARTIN"></label>
             <label>每页条数
               <select id="ledgerPageSize" name="page_size">
                 <option value="20">20</option>
@@ -1723,17 +1723,20 @@
             ? `<input type="checkbox" class="plannerPickShop" value="${encodeURIComponent(String(r.group_key || ''))}">`
             : '<span class="small">-</span>';
           const shopText = String(r.shop_no || '').trim() || '（空，不合并）';
+          const sourceText = String(r.source_customer_name || '').trim();
+          const shopCell = sourceText
+            ? `${textCell(shopText, 20)}<div class="small">客户：${textCell(sourceText, 16)}</div>`
+            : textCell(shopText, 20);
           return `<tr>
             <td>${pickCell}</td>
-            <td>${textCell(shopText, 20)}</td>
-            <td>${textCell(r.source_customer_name || '', 16)}</td>
+            <td>${shopCell}</td>
             <td>${r.cartons}</td>
             <td>${Number(r.cbm_total || 0).toFixed(3)}</td>
             ${showStatusCol ? `<td>${textCell(r.status_text || '', 14)}</td>` : ''}
             <td><span class="small">批量加入</span></td>
           </tr>`;
         });
-        const headers = ['选择', '店铺', '客户', '件数', '总CBM'].concat(showStatusCol ? ['状态'] : []).concat(['操作']);
+        const headers = ['选择', '店铺', '件数', '总CBM'].concat(showStatusCol ? ['状态'] : []).concat(['操作']);
         renderTable(byId('tablePlannerAvailable'), headers, trs);
         refreshPlannerFillPreview();
         return;
@@ -2420,10 +2423,10 @@
       byId('formLedgerQuery').onsubmit = async (e) => {
         e.preventDefault();
         const f = new FormData(e.target);
-        const customerId = String(f.get('customer_id') || '').trim();
+        const customerName = String(f.get('customer_name') || '').trim();
         state.ledgerPageSize = Number(f.get('page_size') || 50);
         state.ledgerPage = 1;
-        const path = customerId ? `/ledger?customer_id=${encodeURIComponent(customerId)}` : '/ledger';
+        const path = customerName ? `/ledger?customer_name=${encodeURIComponent(customerName)}` : '/ledger';
         try {
           const rows = await api(path);
           state.ledger = rows;

@@ -261,12 +261,28 @@ def list_statements(conn: Connection, limit: int = 100) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def ledger(conn: Connection, customer_id: int | None = None) -> list[dict]:
+def ledger(conn: Connection, customer_id: int | None = None, customer_name: str | None = None) -> list[dict]:
     where = 'WHERE c.is_active=1'
     args = []
     if customer_id:
         where = 'WHERE c.is_active=1 AND c.id=?'
         args.append(customer_id)
+    elif customer_name:
+        kw = f"%{str(customer_name).strip().upper()}%"
+        where = '''
+        WHERE c.is_active=1
+          AND (
+            UPPER(c.name) LIKE ?
+            OR EXISTS (
+              SELECT 1
+              FROM customer_aliases ca
+              WHERE ca.customer_id=c.id
+                AND ca.is_active=1
+                AND UPPER(ca.alias_name) LIKE ?
+            )
+          )
+        '''
+        args.extend([kw, kw])
 
     rows = conn.execute(
         f'''
