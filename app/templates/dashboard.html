@@ -1822,7 +1822,7 @@
         return Array.from(idSet).filter(x => Number.isFinite(x) && x > 0);
       }
       if (state.plannerViewMode === 'shop_summary') {
-        const checks = Array.from(document.querySelectorAll('#tablePlannerAvailable .plannerPickShop:checked'));
+        const checks = Array.from(document.querySelectorAll('#tablePlannerAvailable .plannerPickCustomer:checked'));
         const keys = checks.map(x => decodeURIComponent(String(x.value || ''))).filter(Boolean);
         const idSet = new Set();
         state.plannerAvailableShopSummary
@@ -2541,7 +2541,7 @@
       byId('btnPlannerPickPage').onclick = () => {
         const selector = state.plannerViewMode === 'summary'
           ? '.plannerPickCustomer'
-          : (state.plannerViewMode === 'shop_summary' ? '.plannerPickShop' : '.plannerPick');
+          : (state.plannerViewMode === 'shop_summary' ? '.plannerPickCustomer' : '.plannerPick');
         const checks = Array.from(document.querySelectorAll(`#tablePlannerAvailable ${selector}`));
         if (checks.length === 0) {
           if (state.plannerViewMode === 'summary') setMsg('当前页没有可勾选客户', false);
@@ -2557,7 +2557,7 @@
       byId('tablePlannerAvailable').addEventListener('change', (e) => {
         const t = e.target;
         if (!(t instanceof HTMLInputElement)) return;
-        if (t.classList.contains('plannerPick') || t.classList.contains('plannerPickCustomer') || t.classList.contains('plannerPickShop')) {
+        if (t.classList.contains('plannerPick') || t.classList.contains('plannerPickCustomer')) {
           refreshPlannerFillPreview();
         }
       });

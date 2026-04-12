@@ -1239,3 +1239,15 @@
     - 重置 `min-width/padding`，并设置紧凑 `width/height`（14x14）与小间距。
   - 保留“是/不是”标签组紧凑布局，避免出现“选项圈与文字距离过大”。
 - 更新原因：定位到根因是全局 `input` 样式（普通输入框口径）误作用于 radio，导致弹窗视觉间距异常。
+
+### 93. 修复按店铺汇总勾选后无法加入柜次
+- 时间：2026-04-12
+- 更新内容：
+  - 修正 `app/templates/dashboard.html` 中店铺汇总勾选选择器不一致问题：
+    - 渲染层使用 `plannerPickCustomer`，但收集勾选与“全选本页”仍错误使用 `plannerPickShop`，导致始终提示“请先勾选要加入柜次的店铺”；
+    - 已统一为 `plannerPickCustomer`，并同步清理变更监听中的旧类名判断。
+  - 覆盖点：
+    - `collectPlannerPickedIds()`
+    - `btnPlannerPickPage` 选择器分支
+    - `tablePlannerAvailable` 变更监听
+- 更新原因：修复店铺汇总模式下“可勾选但无法加入柜次”的阻断性问题，恢复装柜主流程可用性。
