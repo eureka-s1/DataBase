@@ -159,10 +159,12 @@
     details { margin-top: 8px; }
     .modal-mask { position: fixed; inset: 0; background: rgba(9, 24, 40, 0.45); display: none; align-items: center; justify-content: center; z-index: 999; }
     .modal-mask.show { display: flex; }
-    .modal-card { width: min(520px, 92vw); background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+    .modal-card { width: min(520px, 92vw); max-height: 88vh; overflow: auto; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
     #doneModalText { white-space: pre-line; }
     #customerReviewTable th, #customerReviewTable td { padding: 6px; border-bottom: 1px solid #edf2f8; }
-    #customerReviewTable input[type="text"] { min-width: 180px; }
+    #customerReviewTable .cr-actions { display: flex; gap: 10px; align-items: center; white-space: nowrap; }
+    #customerReviewTable .cr-actions label { display: inline-flex; align-items: center; gap: 4px; margin: 0; color: #2f455a; font-size: 13px; }
+    #customerReviewTable input[type="text"] { width: 320px; min-width: 320px; }
     .preview-box { margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: #fbfdff; display: none; }
     .preview-box.show { display: block; }
     .preview-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
@@ -1066,10 +1068,12 @@
           <td>${idx + 1}</td>
           <td>${name}</td>
           <td>
-            <label><input type="radio" name="cr_action_${idx}" value="ALIAS" checked>是（别名）</label>
-            <label style="margin-left:8px;"><input type="radio" name="cr_action_${idx}" value="NEW">不是</label>
+            <div class="cr-actions">
+              <label><input type="radio" name="cr_action_${idx}" value="ALIAS" checked>是（别名）</label>
+              <label><input type="radio" name="cr_action_${idx}" value="NEW">不是</label>
+            </div>
           </td>
-          <td><input type="text" class="cr_target" data-idx="${idx}" placeholder="主名或已有别名（选择“是”时必填）"></td>
+          <td><input type="text" class="cr_target" data-idx="${idx}" placeholder="输入主名/已有别名（仅“是”时必填）"></td>
         </tr>
       `).join('');
       table.innerHTML = `<tr><th>#</th><th>导入名称</th><th>是否别名</th><th>目标客户（别名模式）</th></tr>${rows}`;
@@ -2459,9 +2463,9 @@
           const usage = await api(`/containers/${encodeURIComponent(state.plannerContainerId)}/usage`);
           const used = Number(usage.used_cbm || 0);
           const cap = Number(usage.capacity_cbm || 0);
-          const tolerantCap = cap + Math.max(cap * 0.01, 0.3);
+          const tolerantCap = Math.max(cap, 71);
           if (used + addCbm > tolerantCap + 1e-9) {
-            const msg = `加入失败：将超出柜容积（含轻微超装容差）。\n当前占用: ${used}\n将新增: ${addCbm.toFixed(6)}\n柜容量: ${cap}\n允许上限: ${tolerantCap.toFixed(6)}`;
+            const msg = `加入失败：将超出柜容积上限。\n当前占用: ${used}\n将新增: ${addCbm.toFixed(6)}\n柜容量: ${cap}\n允许上限: ${tolerantCap.toFixed(6)}`;
             setMsg('加入失败：超出货柜容量限制', false);
             showDoneModal(msg, '装柜失败');
             return;

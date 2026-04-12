@@ -7,8 +7,8 @@ from .common import now_ts, to_float, to_int
 
 def _capacity_with_tolerance(capacity_cbm: float) -> float:
     cap = to_float(capacity_cbm, 0.0)
-    # Allow slight overfill: max(1% of capacity, 0.3 cbm).
-    return cap + max(cap * 0.01, 0.3)
+    # Business rule: allow loading up to 71 CBM.
+    return max(cap, 71.0)
 
 
 def _ensure_master_customer_valid(conn: Connection, container_id: int) -> None:
