@@ -510,6 +510,7 @@
               <div style="display:flex; gap:8px; margin:0 0 8px;">
                 <button class="btn primary" id="btnPlannerViewItems" type="button">货物明细</button>
                 <button class="btn" id="btnPlannerViewSummary" type="button">按客户汇总</button>
+                <button class="btn" id="btnPlannerViewShopSummary" type="button">按店铺汇总</button>
               </div>
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
                 <div id="plannerAvailablePageInfo" class="small"></div>
@@ -958,6 +959,7 @@
       plannerCapacityCbm: 68,
       plannerAvailableFiltered: [],
       plannerAvailableSummary: [],
+      plannerAvailableShopSummary: [],
       plannerAvailablePage: 1,
       plannerAvailablePageSize: 30,
       plannerSelectedPage: 1,
@@ -1617,6 +1619,7 @@
       state.plannerAvailableSummary = Array.from(summaryMap.values())
         .sort((a, b) => a.customer_name.localeCompare(b.customer_name))
         .map(x => ({
+          group_key: String(x.customer_name || ''),
           customer_name: x.customer_name,
           cartons: x.cartons,
           cbm_total: x.cbm_total,
@@ -1624,10 +1627,65 @@
           status_text: Array.from(x.statuses).sort().join('/'),
         }));
 
+      const shopSummaryMap = new Map();
+      rows.forEach(r => {
+        const shop = String(r.shop_no || '').trim();
+        const st = String(r.status || '').trim();
+        const cbm = Number(r.cbm_final ?? r.cbm_calculated ?? 0);
+        const carton = Number(r.carton_count || 0);
+        if (!shop) {
+          // Empty shop rows should not be merged: keep one row per item.
+          const k = `__EMPTY__${Number(r.id)}`;
+          shopSummaryMap.set(k, {
+            group_key: k,
+            shop_no: '',
+            cartons: Number.isFinite(carton) ? carton : 0,
+            cbm_total: Number.isFinite(cbm) ? cbm : 0,
+            stock_item_ids: st === 'IN_STOCK' ? [Number(r.id)] : [],
+            status_text: st || '',
+            source_customer_name: String(r.customer_name || ''),
+            is_empty_shop_single: true,
+          });
+          return;
+        }
+        const cur = shopSummaryMap.get(shop) || {
+          group_key: shop,
+          shop_no: shop,
+          cartons: 0,
+          cbm_total: 0,
+          stock_item_ids: [],
+          statuses: new Set(),
+          source_customer_names: new Set(),
+          is_empty_shop_single: false,
+        };
+        cur.cartons += Number.isFinite(carton) ? carton : 0;
+        cur.cbm_total += Number.isFinite(cbm) ? cbm : 0;
+        if (st) cur.statuses.add(st);
+        if (st === 'IN_STOCK') cur.stock_item_ids.push(Number(r.id));
+        const cn = String(r.customer_name || '').trim();
+        if (cn) cur.source_customer_names.add(cn);
+        shopSummaryMap.set(shop, cur);
+      });
+      state.plannerAvailableShopSummary = Array.from(shopSummaryMap.values())
+        .sort((a, b) => String(a.shop_no || '').localeCompare(String(b.shop_no || '')))
+        .map(x => ({
+          group_key: String(x.group_key || x.shop_no || ''),
+          shop_no: String(x.shop_no || ''),
+          cartons: x.cartons,
+          cbm_total: x.cbm_total,
+          stock_item_ids: Array.from(new Set((x.stock_item_ids || []).filter(n => Number.isFinite(n) && n > 0))),
+          status_text: x.is_empty_shop_single ? String(x.status_text || '') : Array.from(x.statuses || []).sort().join('/'),
+          source_customer_name: x.is_empty_shop_single ? String(x.source_customer_name || '') : Array.from(x.source_customer_names || []).sort().join('/'),
+          is_empty_shop_single: !!x.is_empty_shop_single,
+        }));
+
       byId('btnPlannerViewItems').classList.toggle('primary', state.plannerViewMode === 'items');
       byId('btnPlannerViewSummary').classList.toggle('primary', state.plannerViewMode === 'summary');
+      byId('btnPlannerViewShopSummary').classList.toggle('primary', state.plannerViewMode === 'shop_summary');
       const pageSize = Number(state.plannerAvailablePageSize || 30);
-      const renderRows = state.plannerViewMode === 'summary' ? state.plannerAvailableSummary : rows;
+      let renderRows = rows;
+      if (state.plannerViewMode === 'summary') renderRows = state.plannerAvailableSummary;
+      if (state.plannerViewMode === 'shop_summary') renderRows = state.plannerAvailableShopSummary;
       const totalPages = Math.max(1, Math.ceil(renderRows.length / pageSize));
       if (state.plannerAvailablePage > totalPages) state.plannerAvailablePage = totalPages;
       if (state.plannerAvailablePage < 1) state.plannerAvailablePage = 1;
@@ -1640,7 +1698,7 @@
         const trs = pageRows.map(r => {
           const canPick = Array.isArray(r.stock_item_ids) && r.stock_item_ids.length > 0;
           const pickCell = canPick
-            ? `<input type="checkbox" class="plannerPickCustomer" value="${encodeURIComponent(r.customer_name)}">`
+            ? `<input type="checkbox" class="plannerPickCustomer" value="${encodeURIComponent(String(r.group_key || r.customer_name || ''))}">`
             : '<span class="small">-</span>';
           return `<tr>
             <td>${pickCell}</td>
@@ -1653,6 +1711,31 @@
         });
         const headers = ['选择', '客户', '件数', '总CBM'].concat(showStatusCol ? ['状态'] : []).concat(['操作']);
         renderTable(byId('tablePlannerAvailable'), headers, trs);
+        refreshPlannerFillPreview();
+        return;
+      }
+
+      if (state.plannerViewMode === 'shop_summary') {
+        byId('tablePlannerAvailable').classList.add('summary-mode');
+        const trs = pageRows.map(r => {
+          const canPick = Array.isArray(r.stock_item_ids) && r.stock_item_ids.length > 0;
+          const pickCell = canPick
+            ? `<input type="checkbox" class="plannerPickShop" value="${encodeURIComponent(String(r.group_key || ''))}">`
+            : '<span class="small">-</span>';
+          const shopText = String(r.shop_no || '').trim() || '（空，不合并）';
+          return `<tr>
+            <td>${pickCell}</td>
+            <td>${textCell(shopText, 20)}</td>
+            <td>${textCell(r.source_customer_name || '', 16)}</td>
+            <td>${r.cartons}</td>
+            <td>${Number(r.cbm_total || 0).toFixed(3)}</td>
+            ${showStatusCol ? `<td>${textCell(r.status_text || '', 14)}</td>` : ''}
+            <td><span class="small">批量加入</span></td>
+          </tr>`;
+        });
+        const headers = ['选择', '店铺', '客户', '件数', '总CBM'].concat(showStatusCol ? ['状态'] : []).concat(['操作']);
+        renderTable(byId('tablePlannerAvailable'), headers, trs);
+        refreshPlannerFillPreview();
         return;
       }
 
@@ -1712,10 +1795,19 @@
     function collectPlannerPickedIds() {
       if (state.plannerViewMode === 'summary') {
         const checks = Array.from(document.querySelectorAll('#tablePlannerAvailable .plannerPickCustomer:checked'));
-        const names = checks.map(x => decodeURIComponent(String(x.value || ''))).filter(Boolean);
+        const keys = checks.map(x => decodeURIComponent(String(x.value || ''))).filter(Boolean);
         const idSet = new Set();
         state.plannerAvailableSummary
-          .filter(x => names.includes(String(x.customer_name || '')))
+          .filter(x => keys.includes(String(x.group_key || x.customer_name || '')))
+          .forEach(x => (x.stock_item_ids || []).forEach(id => idSet.add(Number(id))));
+        return Array.from(idSet).filter(x => Number.isFinite(x) && x > 0);
+      }
+      if (state.plannerViewMode === 'shop_summary') {
+        const checks = Array.from(document.querySelectorAll('#tablePlannerAvailable .plannerPickShop:checked'));
+        const keys = checks.map(x => decodeURIComponent(String(x.value || ''))).filter(Boolean);
+        const idSet = new Set();
+        state.plannerAvailableShopSummary
+          .filter(x => keys.includes(String(x.group_key || '')))
           .forEach(x => (x.stock_item_ids || []).forEach(id => idSet.add(Number(id))));
         return Array.from(idSet).filter(x => Number.isFinite(x) && x > 0);
       }
@@ -2422,11 +2514,20 @@
         state.plannerAvailablePage = 1;
         renderPlannerAvailable();
       };
+      byId('btnPlannerViewShopSummary').onclick = () => {
+        state.plannerViewMode = 'shop_summary';
+        state.plannerAvailablePage = 1;
+        renderPlannerAvailable();
+      };
       byId('btnPlannerPickPage').onclick = () => {
-        const selector = state.plannerViewMode === 'summary' ? '.plannerPickCustomer' : '.plannerPick';
+        const selector = state.plannerViewMode === 'summary'
+          ? '.plannerPickCustomer'
+          : (state.plannerViewMode === 'shop_summary' ? '.plannerPickShop' : '.plannerPick');
         const checks = Array.from(document.querySelectorAll(`#tablePlannerAvailable ${selector}`));
         if (checks.length === 0) {
-          setMsg(state.plannerViewMode === 'summary' ? '当前页没有可勾选客户' : '当前页没有可勾选货物', false);
+          if (state.plannerViewMode === 'summary') setMsg('当前页没有可勾选客户', false);
+          else if (state.plannerViewMode === 'shop_summary') setMsg('当前页没有可勾选店铺', false);
+          else setMsg('当前页没有可勾选货物', false);
           return;
         }
         const shouldSelect = checks.some(x => !x.checked);
@@ -2437,7 +2538,7 @@
       byId('tablePlannerAvailable').addEventListener('change', (e) => {
         const t = e.target;
         if (!(t instanceof HTMLInputElement)) return;
-        if (t.classList.contains('plannerPick') || t.classList.contains('plannerPickCustomer')) {
+        if (t.classList.contains('plannerPick') || t.classList.contains('plannerPickCustomer') || t.classList.contains('plannerPickShop')) {
           refreshPlannerFillPreview();
         }
       });
@@ -2449,7 +2550,9 @@
         let ids = [];
         ids = collectPlannerPickedIds();
         if (ids.length === 0) {
-          setMsg(state.plannerViewMode === 'summary' ? '请先勾选要加入柜次的客户' : '请先勾选要加入柜次的货物', false);
+          if (state.plannerViewMode === 'summary') setMsg('请先勾选要加入柜次的客户', false);
+          else if (state.plannerViewMode === 'shop_summary') setMsg('请先勾选要加入柜次的店铺', false);
+          else setMsg('请先勾选要加入柜次的货物', false);
           return;
         }
         const cbmById = new Map(
