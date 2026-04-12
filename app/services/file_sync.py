@@ -456,7 +456,11 @@ def _ensure_month_sheet(wb, customer_name: str, customer_phone: str | None, year
     # if the last non-empty sheet still has unsettled in-stock rows,
     # keep appending there first (even when inbound month changes).
     last_ws = _pick_last_non_empty_sheet(wb)
-    if last_ws is not None and not _sheet_needs_new_section(last_ws):
+    if (
+        last_ws is not None
+        and _sheet_has_any_content(last_ws)
+        and not _sheet_needs_new_section(last_ws)
+    ):
         return last_ws
 
     existed = _find_month_sheet_name(wb, year, month)
