@@ -367,7 +367,7 @@ def export_container_excel(conn: Connection, container_id: int) -> str:
     item_recs: list[list] = []
     for r in items:
         item_recs.append([
-            r.get('inbound_date'), r.get('customer_name'), r.get('shop_no'), '',
+            r.get('inbound_date'), r.get('customer_name'), r.get('shop_no'), r.get('position_or_tel'),
             r.get('item_no'), r.get('item_name_cn'), r.get('material'),
             r.get('carton_count'), r.get('qty'),
             _num(r.get('unit_price')), _num(r.get('total_price')), _num(r.get('deposit_hint')),

@@ -1276,3 +1276,13 @@
     - `app/templates/dashboard.html` 中设置 fallback 改为 `monthly_auto_enabled: false`；
     - “启用（默认）”文案改为“启用（自动）”，避免与新默认值冲突。
 - 更新原因：满足“每个月自动更新月份 sheet 功能默认关闭”的最新要求，减少误触发自动更新。
+
+### 96. 导出柜单货物明细的 TEL 列改为位置字段（position_or_tel）
+- 时间：2026-04-14
+- 更新内容：
+  - 修正 `export_container_excel` 的货物明细映射（`app/services/reports.py`）：
+    - 原 `TEL` 列固定写空字符串；
+    - 现改为写 `position_or_tel`（即货物位置/TEL 字段）。
+  - 补齐柜单数据源字段（`app/services/containers.py`）：
+    - `container_manifest` 查询新增 `i.position_or_tel`，供导出层使用。
+- 更新原因：满足“导出->导出柜单 功能中，TEL 列应显示货物位置（tel_or_pos）”的业务要求。

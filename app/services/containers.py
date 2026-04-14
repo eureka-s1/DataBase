@@ -504,7 +504,7 @@ def container_manifest(conn: Connection, container_id: int) -> tuple[dict, list[
     unit_price = to_float(head['default_price_per_m3'])
     rows = conn.execute(
         '''
-        SELECT ci.inbound_item_id, ci.cbm_at_load, i.inbound_date, i.item_no, i.item_name_cn, i.shop_no, i.status AS item_status,
+        SELECT ci.inbound_item_id, ci.cbm_at_load, i.inbound_date, i.item_no, i.item_name_cn, i.shop_no, i.position_or_tel, i.status AS item_status,
                i.material, i.carton_count, i.qty, i.unit_price, i.total_price, i.deposit_hint,
                i.length_cm, i.width_cm, i.height_cm,
                cu.id AS customer_id, cu.name AS customer_name
