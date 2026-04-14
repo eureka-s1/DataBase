@@ -1145,7 +1145,7 @@ def create_app() -> Flask:
     @login_required
     def sync_monthly_settings_api():
         payload = request.get_json(force=True) or {}
-        enabled = bool(payload.get('monthly_auto_enabled', True))
+        enabled = bool(payload.get('monthly_auto_enabled', False))
         return set_monthly_auto_enabled(enabled)
 
     @app.route('/sync/monthly/execute', methods=['POST'])

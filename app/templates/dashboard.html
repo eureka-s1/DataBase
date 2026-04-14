@@ -873,7 +873,7 @@
             <form id="formMonthlyAutoSetting" class="inline" style="margin-top:8px;">
               <label>自动分 Sheet
                 <select id="monthlyAutoEnabled" name="monthly_auto_enabled">
-                  <option value="1">启用（默认）</option>
+                  <option value="1">启用（自动）</option>
                   <option value="0">关闭（仅手动）</option>
                 </select>
               </label>
@@ -1144,7 +1144,7 @@
 
     async function refreshSettings() {
       const s = await api('/settings');
-      state.settings = s || { work_dir: '', monthly_auto_enabled: true, monthly_last_run_ym: '' };
+      state.settings = s || { work_dir: '', monthly_auto_enabled: false, monthly_last_run_ym: '' };
       const wd = String(state.settings.work_dir || '').trim();
       if (byId('workDirCurrent')) byId('workDirCurrent').textContent = wd ? `当前工作目录：${wd}` : '当前工作目录：未设置';
       if (byId('workDirInput')) byId('workDirInput').value = wd;

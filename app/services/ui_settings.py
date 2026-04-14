@@ -32,7 +32,7 @@ def get_ui_settings() -> dict:
     wd = str(data.get("work_dir") or "").strip()
     if not wd:
         wd = str(_default_work_dir())
-    monthly_auto_enabled = bool(data.get("monthly_auto_enabled", True))
+    monthly_auto_enabled = bool(data.get("monthly_auto_enabled", False))
     monthly_last_run_ym = str(data.get("monthly_last_run_ym") or "").strip()
     return {
         "work_dir": wd,

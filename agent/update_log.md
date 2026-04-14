@@ -1264,3 +1264,15 @@
   - 实测验证：
     - `2026data/YOMEK/YOMEX 2026 收货清单.xlsx` 的 `2026 4` sheet 判定由 `LAST_NEEDS_NEW_SECTION=False` 修正为 `True`。
 - 更新原因：响应“已结算客户仍被判定为未结算”的反馈，确保收货同步分段与新表头生成时机正确。
+
+### 95. 月份 Sheet 自动更新默认值改为关闭
+- 时间：2026-04-14
+- 更新内容：
+  - 后端默认设置调整：
+    - `app/services/ui_settings.py` 中 `monthly_auto_enabled` 默认值由 `True` 改为 `False`。
+  - 接口兜底默认调整：
+    - `app/__init__.py` 的 `PUT /sync/monthly/settings` 在缺省参数时按 `False` 处理。
+  - 前端默认态与文案同步：
+    - `app/templates/dashboard.html` 中设置 fallback 改为 `monthly_auto_enabled: false`；
+    - “启用（默认）”文案改为“启用（自动）”，避免与新默认值冲突。
+- 更新原因：满足“每个月自动更新月份 sheet 功能默认关闭”的最新要求，减少误触发自动更新。
