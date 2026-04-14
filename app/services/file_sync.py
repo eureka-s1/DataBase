@@ -575,6 +575,45 @@ def _is_header_values(values: list[str]) -> bool:
     return ("SHOP NO" in joined and "ITEM NO" in joined) or ("日期" in joined and "SHOP NO" in joined)
 
 
+def _is_goods_row_values(values: list[str]) -> bool:
+    """
+    Decide whether a row is a goods detail row in customer receipt sheets.
+    Rule intent:
+    - marker/header rows are handled elsewhere
+    - rows that are not goods (e.g. REMAIN/BALANCE notes) should be ignored
+    """
+    vals = [str(v or "").strip() for v in values]
+    if not any(vals):
+        return False
+
+    # Frequent non-goods tail notes in customer files.
+    upper_tokens = [v.upper() for v in vals]
+    ignore_tokens = {"REMAIN", "BALANCE", "TOTAL", "SUBTOTAL"}
+    if any(t in ignore_tokens for t in upper_tokens):
+        return False
+
+    # Receipt goods columns (A-L):
+    # A 日期/客户名, B SHOP NO, C TEL, D ITEM NO, E 品名, F 材质, G CTNS, H QTY, I PRICE, J T.PRICE, K 定金, L CBM
+    shop_no = vals[1] if len(vals) > 1 else ""
+    item_no = vals[3] if len(vals) > 3 else ""
+    item_name = vals[4] if len(vals) > 4 else ""
+    material = vals[5] if len(vals) > 5 else ""
+    ctns = vals[6] if len(vals) > 6 else ""
+    qty = vals[7] if len(vals) > 7 else ""
+    price = vals[8] if len(vals) > 8 else ""
+    total_price = vals[9] if len(vals) > 9 else ""
+    deposit = vals[10] if len(vals) > 10 else ""
+    cbm = vals[11] if len(vals) > 11 else ""
+
+    has_item_identity = bool(item_no or item_name or material)
+    has_numeric_payload = any(
+        to_float(x, 0.0) > 0
+        for x in (ctns, qty, price, total_price, deposit, cbm)
+    )
+    has_shop = bool(shop_no)
+    return has_item_identity and (has_numeric_payload or has_shop)
+
+
 def _apply_customer_settlement_widths_d_to_k(ws) -> None:
     # From customer_receipts_2026data_format_sample.md baseline (D-K)
     width_map = {
@@ -611,7 +650,10 @@ def _sheet_needs_new_section(ws) -> bool:
             continue
         if _is_settlement_marker_values(vals):
             continue
-        return False
+        if _is_goods_row_values(vals):
+            return False
+        # Non-empty but non-goods rows (e.g. REMAIN/BALANCE notes) are ignored.
+        continue
     return True
 
 

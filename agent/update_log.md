@@ -1251,3 +1251,16 @@
     - `btnPlannerPickPage` 选择器分支
     - `tablePlannerAvailable` 变更监听
 - 更新原因：修复店铺汇总模式下“可勾选但无法加入柜次”的阻断性问题，恢复装柜主流程可用性。
+
+### 94. 收货同步“未结算判定”规则修正（忽略非货物尾部备注行）
+- 时间：2026-04-14
+- 更新内容：
+  - 调整 `app/services/file_sync.py`：
+    - 新增 `_is_goods_row_values(values)`，用于识别“货物明细行”；
+    - `_sheet_needs_new_section` 改为：在最后结算标记行之后，仅“货物行”才判定为未结算（返回 `False`）；
+    - 非空但非货物、非结算行、非表头的备注行（如 `REMAIN/BALANCE/TOTAL/SUBTOTAL`）统一忽略。
+  - 规则效果：
+    - 避免 `REMAIN/BALANCE` 等尾部结算备注导致“误判未结算、持续写入旧 sheet”。
+  - 实测验证：
+    - `2026data/YOMEK/YOMEX 2026 收货清单.xlsx` 的 `2026 4` sheet 判定由 `LAST_NEEDS_NEW_SECTION=False` 修正为 `True`。
+- 更新原因：响应“已结算客户仍被判定为未结算”的反馈，确保收货同步分段与新表头生成时机正确。
