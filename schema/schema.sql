@@ -126,6 +126,7 @@ CREATE TABLE IF NOT EXISTS inbound_items (
   inbound_no TEXT NOT NULL UNIQUE,
   import_batch_id INTEGER,
   customer_id INTEGER NOT NULL,
+  customer_name_imported TEXT,
   warehouse_id INTEGER,
   inbound_date TEXT NOT NULL,
   shop_no TEXT,

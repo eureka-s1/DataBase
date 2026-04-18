@@ -646,6 +646,7 @@ def run_import(args) -> dict:
                     "inbound_no": inbound_no,
                     "import_batch_id": None,
                     "customer_id": cid,
+                    "customer_name_imported": r.customer_name,
                     "warehouse_id": warehouse_id,
                     "inbound_date": args.inbound_date or r.inbound_date_hint or file_mtime_date,
                     "shop_no": r.shop_no,

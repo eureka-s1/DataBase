@@ -266,18 +266,19 @@ def split_inbound_item_by_cartons(
     cur = conn.execute(
         '''
         INSERT INTO inbound_items(
-          inbound_no, import_batch_id, customer_id, warehouse_id, inbound_date,
+          inbound_no, import_batch_id, customer_id, customer_name_imported, warehouse_id, inbound_date,
           shop_no, position_or_tel, item_no, item_name_cn, material,
           carton_count, qty, unit_price, total_price, deposit_hint,
           length_cm, width_cm, height_cm, cbm_calculated, cbm_override,
           status, container_id, remark, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'IN_STOCK', NULL, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'IN_STOCK', NULL, ?, ?, ?)
         ''',
         (
             split_no,
             row['import_batch_id'],
             row['customer_id'],
+            row['customer_name_imported'],
             row['warehouse_id'],
             row['inbound_date'],
             row['shop_no'],
@@ -345,7 +346,7 @@ def list_container_items(conn: Connection, container_id: int) -> list[dict]:
                i.inbound_date, i.status, i.shop_no, i.item_no, i.item_name_cn, i.material,
                i.carton_count, i.qty, i.unit_price, i.total_price, i.deposit_hint,
                i.cbm_calculated, i.cbm_override,
-               c.name AS customer_name
+               COALESCE(NULLIF(i.customer_name_imported, ''), c.name) AS customer_name
         FROM container_items ci
         JOIN inbound_items i ON i.id = ci.inbound_item_id
         JOIN customers c ON c.id = i.customer_id
@@ -507,12 +508,12 @@ def container_manifest(conn: Connection, container_id: int) -> tuple[dict, list[
         SELECT ci.inbound_item_id, ci.cbm_at_load, i.inbound_date, i.item_no, i.item_name_cn, i.shop_no, i.position_or_tel, i.status AS item_status,
                i.material, i.carton_count, i.qty, i.unit_price, i.total_price, i.deposit_hint,
                i.length_cm, i.width_cm, i.height_cm,
-               cu.id AS customer_id, cu.name AS customer_name
+               cu.id AS customer_id, COALESCE(NULLIF(i.customer_name_imported, ''), cu.name) AS customer_name
         FROM container_items ci
         JOIN inbound_items i ON i.id = ci.inbound_item_id
         JOIN customers cu ON cu.id = i.customer_id
         WHERE ci.container_id=?
-        ORDER BY cu.name, i.inbound_date, i.id
+        ORDER BY COALESCE(NULLIF(i.customer_name_imported, ''), cu.name), i.inbound_date, i.id
         ''',
         (container_id,),
     ).fetchall()
@@ -524,7 +525,22 @@ def container_manifest(conn: Connection, container_id: int) -> tuple[dict, list[
 
     customer_summary_rows = conn.execute(
         '''
-        SELECT cu.id AS customer_id, cu.name AS customer_name, COALESCE(cu.phone, '') AS customer_phone,
+        SELECT cu.id AS customer_id,
+               COALESCE(
+                 (
+                   SELECT i2.customer_name_imported
+                   FROM container_items ci2
+                   JOIN inbound_items i2 ON i2.id = ci2.inbound_item_id
+                   WHERE ci2.container_id = ci.container_id
+                     AND i2.customer_id = cu.id
+                     AND NULLIF(TRIM(i2.customer_name_imported), '') IS NOT NULL
+                   GROUP BY i2.customer_name_imported
+                   ORDER BY COUNT(*) DESC, MAX(i2.id) DESC
+                   LIMIT 1
+                 ),
+                 cu.name
+               ) AS customer_name,
+               COALESCE(cu.phone, '') AS customer_phone,
                COALESCE(SUM(i.carton_count), 0) AS ctns,
                COALESCE(SUM(ci.cbm_at_load), 0) AS cbm_total
         FROM container_items ci
@@ -532,7 +548,7 @@ def container_manifest(conn: Connection, container_id: int) -> tuple[dict, list[
         JOIN customers cu ON cu.id = i.customer_id
         WHERE ci.container_id=?
         GROUP BY cu.id, cu.name, cu.phone
-        ORDER BY cu.name
+        ORDER BY customer_name
         ''',
         (container_id,),
     ).fetchall()

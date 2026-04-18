@@ -254,8 +254,23 @@ def statement_lines(conn: Connection, statement_id: int) -> tuple[dict, list[dic
 
     rows = conn.execute(
         '''
-        SELECT sl.*, cu.name AS customer_name
+        SELECT sl.*,
+               COALESCE(
+                 (
+                   SELECT i.customer_name_imported
+                   FROM container_items ci
+                   JOIN inbound_items i ON i.id = ci.inbound_item_id
+                   WHERE ci.container_id = s.container_id
+                     AND i.customer_id = sl.customer_id
+                     AND NULLIF(TRIM(i.customer_name_imported), '') IS NOT NULL
+                   GROUP BY i.customer_name_imported
+                   ORDER BY COUNT(*) DESC, MAX(i.id) DESC
+                   LIMIT 1
+                 ),
+                 cu.name
+               ) AS customer_name
         FROM settlement_lines sl
+        JOIN settlement_statements s ON s.id = sl.statement_id
         JOIN customers cu ON cu.id = sl.customer_id
         WHERE sl.statement_id=?
         ORDER BY cu.name

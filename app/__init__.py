@@ -910,6 +910,7 @@ def create_app() -> Flask:
                 'inbound_no': inbound_no,
                 'import_batch_id': None,
                 'customer_id': customer_id,
+                'customer_name_imported': customer_name,
                 'warehouse_id': warehouse_id,
                 'inbound_date': inbound_date,
                 'shop_no': payload.get('shop_no'),

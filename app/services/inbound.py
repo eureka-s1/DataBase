@@ -18,18 +18,19 @@ def create_inbound_item(conn: Connection, payload: dict) -> int:
     cur = conn.execute(
         '''
         INSERT INTO inbound_items(
-          inbound_no, import_batch_id, customer_id, warehouse_id, inbound_date,
+          inbound_no, import_batch_id, customer_id, customer_name_imported, warehouse_id, inbound_date,
           shop_no, position_or_tel, item_no, item_name_cn, material,
           carton_count, qty, unit_price, total_price, deposit_hint,
           length_cm, width_cm, height_cm, cbm_calculated, cbm_override,
           status, container_id, remark, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''',
         (
             payload['inbound_no'],
             payload.get('import_batch_id'),
             payload['customer_id'],
+            payload.get('customer_name_imported'),
             payload.get('warehouse_id'),
             payload['inbound_date'],
             payload.get('shop_no'),
@@ -124,7 +125,7 @@ def list_inbound(
 
     rows = conn.execute(
         f'''
-        SELECT i.*, c.name AS customer_name,
+        SELECT i.*, COALESCE(NULLIF(i.customer_name_imported, ''), c.name) AS customer_name,
                COALESCE(i.cbm_override, i.cbm_calculated) AS cbm_final
         FROM inbound_items i
         JOIN customers c ON c.id = i.customer_id
@@ -161,7 +162,7 @@ def list_customer_items(
 
     rows = conn.execute(
         f'''
-        SELECT i.*, cu.name AS customer_name,
+        SELECT i.*, COALESCE(NULLIF(i.customer_name_imported, ''), cu.name) AS customer_name,
                COALESCE(i.cbm_override, i.cbm_calculated) AS cbm_final,
                c.container_no,
                CASE

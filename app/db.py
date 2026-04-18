@@ -46,3 +46,6 @@ def init_db(db_path: Path | None = None) -> None:
         cols = {str(r["name"]) for r in conn.execute("PRAGMA table_info(containers)").fetchall()}
         if "master_customer_id" not in cols:
             conn.execute("ALTER TABLE containers ADD COLUMN master_customer_id INTEGER")
+        inbound_cols = {str(r["name"]) for r in conn.execute("PRAGMA table_info(inbound_items)").fetchall()}
+        if "customer_name_imported" not in inbound_cols:
+            conn.execute("ALTER TABLE inbound_items ADD COLUMN customer_name_imported TEXT")

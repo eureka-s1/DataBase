@@ -1,5 +1,20 @@
 # Update Log
 
+### 97. 导出客户名口径修正（优先保留导入时客户名）
+- 时间：2026-04-18
+- 更新内容：
+  - `inbound_items` 新增字段：`customer_name_imported`（导入时客户名快照）。
+  - 入库写入路径补齐：
+    - 收货清单导入（`app/services/importer.py`）写入原始 `customer_name` 到快照字段；
+    - 手动单条导入（`POST /import/inbound/manual-item`）写入用户输入客户名到快照字段；
+    - 历史在库回填（`scripts/import_historical_in_stock.py`）写入文件内客户名到快照字段；
+    - 按 CTN 拆货新增记录沿用原记录快照名（`app/services/containers.py`）。
+  - 查询/导出取名口径调整：
+    - 在库查询、客户货物查询、柜内明细、柜单/账单导出相关数据源改为优先使用 `customer_name_imported`，为空时回退客户主档名。
+  - 兼容老库：
+    - `init_db()` 增加旧库自动补列迁移（缺列时 `ALTER TABLE inbound_items ADD COLUMN customer_name_imported TEXT`）。
+- 更新原因：满足“导入时保留客户导入名，并在导出时显示该名字而非主名”的业务要求，避免别名映射后导出名称被统一成主名。
+
 ### 1. 新增数据库设计文档
 - 时间：2026-04-04
 - 更新内容：创建 `agent/database_design.md`，完成需求整合、原始数据采样、完整数据库设计、技术栈、开发流程、可扩展性分析。

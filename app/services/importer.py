@@ -598,6 +598,7 @@ def import_inbound_excel(
             'inbound_no': f'IN-{inbound_date_used.replace("-", "")}-{batch_id:06d}-{idx:05d}',
             'import_batch_id': batch_id,
             'customer_id': 1 if cid == -1 else cid,
+            'customer_name_imported': row.get('customer_name'),
             'warehouse_id': 1,
             'inbound_date': inbound_date_used,
             'shop_no': row.get('shop_no'),
